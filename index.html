@@ -165,7 +165,7 @@
 
 <script>
        // Your p5.js game code
-       const DEPLOY_VERSION = '1.5.0';
+       const DEPLOY_VERSION = '1.6.0';
        let bird;
        let birdImg, secretBirdImg, titleImg, sunImg, moonImg;
        let dayCloudImgs = [], nightCloudImgs = [];
@@ -201,6 +201,14 @@
        let shieldFlashTimer = 0;
        let shieldParticles = [];
 
+       // --- RUSH mode (unlocked via the easter egg) ---
+       let rushUnlocked = false;
+       let rushMode = false;
+       let rushHue = 0;
+       let hazards = [];
+       let rushShapes = [];
+       let bestRushScore = 0;
+
        window.p5 = this;
        
        this.setLeaderboards = (dayData, nightData) => {
@@ -233,6 +241,7 @@
            bird = new Bird();
            bestDayScore = parseInt(localStorage.getItem('duxHighFlyBestDay')) || 0;
            bestNightScore = parseInt(localStorage.getItem('duxHighFlyBestNight')) || 0;
+           bestRushScore = parseInt(localStorage.getItem('duxHighFlyBestRush')) || 0;
            for (let i = 0; i < 3; i++) {
                clouds.push(new Cloud(random(width), random(height * 0.05, height * 0.25)));
            }
@@ -252,21 +261,29 @@
                shakeDuration--;
            }
 
-           if (midnightMode) { 
-                background(15, 23, 42); 
+           if (rushMode) {
+               drawRushBackground();
+           } else if (midnightMode) {
+                background(15, 23, 42);
                 imageMode(CENTER);
                 image(moonImg, width * 0.9, height * 0.15, width * 0.1, width * 0.1);
-           } else { 
-               background(135, 206, 235); 
+           } else {
+               background(135, 206, 235);
            }
 
            if (gameState === 'loading') {
                drawLoadingScreen();
                return;
            }
-           if (!midnightMode) drawScenery(); else drawNightScenery();
+           if (rushMode) {
+               drawRushScenery();
+           } else if (!midnightMode) {
+               drawScenery();
+           } else {
+               drawNightScenery();
+           }
 
-           if (gameState === 'start' || gameState === 'play' || gameState === 'over' || gameState === 'entering_name' || gameState === 'leaderboard') {
+           if (!rushMode && (gameState === 'start' || gameState === 'play' || gameState === 'over' || gameState === 'entering_name' || gameState === 'leaderboard')) {
                 for (let cloud of clouds) {
                     cloud.show();
                     if(gameState === 'play') cloud.update();
@@ -307,6 +324,7 @@
                    shieldFlashTimer--;
                }
                for (let p of pipes) { p.show(); }
+               for (let hz of hazards) { hz.show(); }
                if (powerUp) powerUp.show();
                bird.show();
                playGame();
@@ -338,8 +356,9 @@
                textAlign(CENTER, TOP);
                text(score, width / 2, 20);
            } else if (gameState === 'over' || gameState === 'entering_name') {
-               if (midnightMode) { for (let i = rain.length - 1; i >= 0; i--) { rain[i].show(); } }
+               if (midnightMode && !rushMode) { for (let i = rain.length - 1; i >= 0; i--) { rain[i].show(); } }
                for (let p of pipes) { p.show(); }
+               for (let hz of hazards) { hz.show(); }
                bird.show();
                for (let i = impactParticles.length - 1; i >= 0; i--) {
                    impactParticles[i].update();
@@ -376,6 +395,80 @@
            noStroke();
            rect(0, height - 50, width, 50);
        }
+
+       // --- RUSH mode visuals ---
+       // Ping-pong the hue across a synthwave band (cyan -> blue -> purple ->
+       // magenta). A full 0-360 cycle would swing through olive/brown, which
+       // turns muddy at these low brightnesses.
+       function rushHueAt(phase) {
+           let t = (((phase % 360) + 360) % 360) / 360;
+           let tri = t < 0.5 ? t * 2 : (1 - t) * 2;
+           return 185 + tri * 150;
+       }
+
+       function rushColor(offset, sat = 90, bri = 100, alpha = 255) {
+           push();
+           colorMode(HSB, 360, 100, 100, 255);
+           let c = color(rushHueAt(rushHue + offset), sat, bri, alpha);
+           pop();
+           return c;
+       }
+
+       function drawRushBackground() {
+           if (gameState === 'play') rushHue = (rushHue + 1.1) % 360;
+
+           push();
+           colorMode(HSB, 360, 100, 100, 255);
+           noStroke();
+           // vertical gradient between two cycling hues
+           let bands = 24;
+           let bandH = height / bands;
+           for (let i = 0; i < bands; i++) {
+               let t = i / (bands - 1);
+               // deep + saturated so the neon foreground stays readable
+               fill(rushHueAt(rushHue + t * 70), 92, lerp(16, 40, t));
+               rect(0, i * bandH - 1, width, bandH + 2);
+           }
+           pop();
+
+           // beat pulse
+           let beat = (frameCount % 40) / 40;
+           if (beat < 0.18) {
+               push();
+               noStroke();
+               fill(255, 255, 255, map(beat, 0, 0.18, 45, 0));
+               rect(0, 0, width, height);
+               pop();
+           }
+       }
+
+       function drawRushScenery() {
+           for (let s of rushShapes) {
+               if (gameState === 'play') s.update();
+               s.show();
+           }
+           // neon floor strip
+           push();
+           noStroke();
+           fill(rushColor(180, 90, 60));
+           rect(0, height - 40, width, 40);
+           fill(rushColor(180, 80, 100, 200));
+           rect(0, height - 44, width, 4);
+           pop();
+       }
+
+       // Menu button metrics. With RUSH unlocked there are 4 buttons, so they
+       // shrink and the stack is anchored to the bottom to stay on screen.
+       function startMenuLayout() {
+           let btnWidth = min(width * 0.7, 400);
+           if (rushUnlocked) {
+               let btnHeight = height * 0.068;
+               let step = btnHeight + 14;
+               return { btnWidth, btnHeight, step, count: 4, base: height * 0.94 - btnHeight / 2 - step * 3 };
+           }
+           let btnHeight = height * 0.08;
+           return { btnWidth, btnHeight, step: btnHeight + 20, count: 3, base: height * 0.65 };
+       }
        
        function drawStartScreen() {
            if (titleImg) {
@@ -390,14 +483,24 @@
            textFont('Inter');
            textSize(max(11, height * 0.017));
            textAlign(CENTER, CENTER);
-           text(`Day Best: ${bestDayScore}    Night Best: ${bestNightScore}`, width / 2, height * 0.58);
+           let L = startMenuLayout();
+           let bestLine = `Day Best: ${bestDayScore}    Night Best: ${bestNightScore}`;
+           if (rushUnlocked) bestLine += `    Rush Best: ${bestRushScore}`;
+           text(bestLine, width / 2, L.base - L.btnHeight / 2 - height * 0.035);
 
-           let btnWidth = min(width * 0.7, 400);
-           let btnHeight = height * 0.08;
-           let sBy1 = height * 0.65, sBy2 = height * 0.65 + btnHeight + 20, sBy3 = height * 0.65 + (btnHeight + 20) * 2;
+           let btnWidth = L.btnWidth;
+           let btnHeight = L.btnHeight;
+           let base = L.base;
+           let step = L.step;
+           let sBy1 = base, sBy2 = base + step, sBy3 = base + step * 2;
            drawButton("Start Flying", width / 2, sBy1, btnWidth, btnHeight, isMouseOverRect(width / 2, sBy1, btnWidth, btnHeight));
            drawButton("Midnight Flight", width / 2, sBy2, btnWidth, btnHeight, isMouseOverRect(width / 2, sBy2, btnWidth, btnHeight));
            drawButton("Leaderboard", width / 2, sBy3, btnWidth, btnHeight, isMouseOverRect(width / 2, sBy3, btnWidth, btnHeight));
+
+           if (rushUnlocked) {
+               let sBy4 = base + step * 3;
+               drawRushButton("⚡ RUSH ⚡", width / 2, sBy4, btnWidth, btnHeight, isMouseOverRect(width / 2, sBy4, btnWidth, btnHeight));
+           }
 
            drawDuxLink();
            
@@ -417,10 +520,17 @@
            textAlign(CENTER, CENTER);
            let titleSize = height * 0.08;
            textSize(titleSize);
-           fill(180, 0, 0);
-           stroke(0);
-           strokeWeight(2);
-           text('Game Over', width/2, height * 0.3);
+           if (rushMode) {
+               fill(rushColor(0, 90, 100));
+               stroke(0);
+               strokeWeight(3);
+               text('RUSH OVER', width/2, height * 0.3);
+           } else {
+               fill(180, 0, 0);
+               stroke(0);
+               strokeWeight(2);
+               text('Game Over', width/2, height * 0.3);
+           }
            noStroke();
 
            if (lastScoreWasHighScore) {
@@ -439,19 +549,24 @@
 
            textSize(height * 0.025);
            fill(255, 230);
-           let modeBest = midnightMode ? bestNightScore : bestDayScore;
+           let modeBest = rushMode ? bestRushScore : (midnightMode ? bestNightScore : bestDayScore);
            text(`Best: ${modeBest}`, width/2, height * 0.51);
 
            let btnWidth = min(width * 0.7, 400);
            let btnHeight = height * 0.08;
            let gBy1 = height * 0.7, gBy2 = height * 0.7 + btnHeight + 20, gBy3 = height * 0.7 + (btnHeight + 20) * 2;
-           drawButton("Fly Again", width / 2, gBy1, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy1, btnWidth, btnHeight));
-           if (midnightMode) {
-               drawButton("Day Flight", width / 2, gBy2, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy2, btnWidth, btnHeight));
+           if (rushMode) {
+               drawRushButton("RUSH AGAIN", width / 2, gBy1, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy1, btnWidth, btnHeight));
+               drawButton("Exit Rush", width / 2, gBy2, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy2, btnWidth, btnHeight));
            } else {
-               drawButton("Midnight Flight", width / 2, gBy2, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy2, btnWidth, btnHeight));
+               drawButton("Fly Again", width / 2, gBy1, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy1, btnWidth, btnHeight));
+               if (midnightMode) {
+                   drawButton("Day Flight", width / 2, gBy2, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy2, btnWidth, btnHeight));
+               } else {
+                   drawButton("Midnight Flight", width / 2, gBy2, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy2, btnWidth, btnHeight));
+               }
+               drawButton("Leaderboard", width / 2, gBy3, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy3, btnWidth, btnHeight));
            }
-           drawButton("Leaderboard", width / 2, gBy3, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy3, btnWidth, btnHeight));
 
            drawDuxLink();
        }
@@ -526,6 +641,19 @@
            return max(12, height * 0.018);
        }
 
+       function getPortraitLinkY() {
+           if (gameState === 'start') {
+               let L = startMenuLayout();
+               return L.base + L.step * (L.count - 1) + L.btnHeight / 2 + 24;
+           }
+           let btnHeight = height * 0.08;
+           let step = btnHeight + 20;
+           if (gameState === 'over') {
+               return height * 0.7 + step * (rushMode ? 1 : 2) + btnHeight / 2 + 30;
+           }
+           return height * 0.9 + btnHeight / 2 + 30;
+       }
+
        // --- UPDATED: Responsive link positioning ---
        function drawDuxLink() {
            const linkText = "What is Dux-Soup";
@@ -543,14 +671,7 @@
 
            if (isPortrait) {
                 textAlign(CENTER, CENTER);
-                let btnHeight = height * 0.08;
-                if (gameState === 'start') {
-                    y = height * 0.65 + (btnHeight + 20) * 2 + btnHeight / 2 + 30;
-                } else if (gameState === 'over') {
-                    y = height * 0.7 + (btnHeight + 20) * 2 + btnHeight / 2 + 30;
-                } else { // Leaderboard
-                    y = height * 0.9 + btnHeight / 2 + 30;
-                }
+                y = getPortraitLinkY();
                 x = width / 2;
                 text(linkText, x, y);
                 linkW = textWidth(linkText);
@@ -584,14 +705,7 @@
 
            if (isPortrait) {
                 textAlign(CENTER, CENTER);
-                let btnHeight = height * 0.08;
-                if (gameState === 'start') {
-                    y = height * 0.65 + (btnHeight + 20) * 2 + btnHeight / 2 + 30;
-                } else if (gameState === 'over') {
-                    y = height * 0.7 + (btnHeight + 20) * 2 + btnHeight / 2 + 30;
-                } else { // Leaderboard
-                    y = height * 0.9 + btnHeight / 2 + 30;
-                }
+                y = getPortraitLinkY();
                 x = width / 2;
                 linkW = textWidth(linkText);
                 linkH = size * 2;
@@ -610,6 +724,40 @@
        
        function isMouseOverRect(x, y, w, h) {
            return mouseX > x - w / 2 && mouseX < x + w / 2 && mouseY > y - h / 2 && mouseY < y + h / 2;
+       }
+
+       function drawRushButton(txt, x, y, w, h, hovered = false) {
+           let by = y + (hovered ? -2 : 0);
+           let cycle = (frameCount * 2) % 360;
+           push();
+           colorMode(HSB, 360, 100, 100, 255);
+           rectMode(CENTER);
+           // outer glow
+           noStroke();
+           fill(cycle, 90, 100, 60);
+           rect(x, by, w + 14, h + 14, 14);
+           // body gradient-ish bands
+           let bands = 10;
+           for (let i = 0; i < bands; i++) {
+               let t = i / (bands - 1);
+               fill((cycle + t * 120) % 360, 85, hovered ? 100 : 92);
+               rect(x, by - h / 2 + h * ((i + 0.5) / bands), w, h / bands + 1, 0);
+           }
+           noFill();
+           stroke(0, 0, 100);
+           strokeWeight(3);
+           rect(x, by, w, h, 10);
+           pop();
+
+           push();
+           noStroke();
+           fill(255);
+           textFont('Press Start 2P');
+           textSize(h * 0.28);
+           textAlign(CENTER, CENTER);
+           text(txt, x, by);
+           pop();
+           rectMode(CORNER);
        }
 
        function drawButton(txt, x, y, w, h, hovered = false) {
@@ -631,13 +779,40 @@
        function playGame() {
            if (shieldGraceFrames > 0) shieldGraceFrames--;
 
-           let interval = midnightMode ? max(30, 70 - floor(score / 10)) : 90;
+           let interval;
+           if (rushMode) {
+               interval = max(34, 62 - floor(score / 20));
+           } else if (midnightMode) {
+               interval = max(30, 70 - floor(score / 10));
+           } else {
+               interval = 90;
+           }
             if (frameCount % interval === 0) {
                let lastPipe = pipes.length > 0 ? pipes[pipes.length - 1] : null;
                let newPipe = new Pipe(lastPipe);
                pipes.push(newPipe);
-               if (!hasShield && !powerUp && score > 0 && random() < 0.18) {
+               if (!hasShield && !powerUp && score > 0 && random() < (rushMode ? 0.26 : 0.18)) {
                    powerUp = new PowerUp(newPipe.x + newPipe.w / 2, newPipe.top + newPipe.spacing / 2);
+               }
+           }
+
+           if (rushMode) {
+               if (score >= 30 && hazards.length < 2 && random() < 0.011) {
+                   hazards.push(new LaserBar());
+               }
+               for (let i = hazards.length - 1; i >= 0; i--) {
+                   hazards[i].update();
+                   if (hazards[i].hits(bird) && shieldGraceFrames <= 0) {
+                       if (hasShield) {
+                           hasShield = false;
+                           shieldGraceFrames = 30;
+                           shieldFlashTimer = 8;
+                           for (let k = 0; k < 20; k++) shieldParticles.push(new ShieldParticle(bird.x, bird.y));
+                       } else {
+                           endGame();
+                       }
+                   }
+                   if (hazards[i].done()) hazards.splice(i, 1);
                }
            }
            for (let i = pipes.length - 1; i >= 0; i--) {
@@ -655,8 +830,9 @@
                }
                if (!pipes[i].passed && pipes[i].x + pipes[i].w < bird.x) {
                    pipes[i].passed = true;
-                   score += 5;
-                   scorePopups.push(new ScorePopup(bird.x, bird.y - bird.size * 0.7));
+                   let gain = rushMode ? 10 : 5;
+                   score += gain;
+                   scorePopups.push(new ScorePopup(bird.x, bird.y - bird.size * 0.7, gain));
                    if (score > 0 && score % 50 === 0) launchConfetti();
                }
                if (pipes[i].offscreen()) {
@@ -685,11 +861,22 @@
            
            shakeDuration = 20;
            shakeAmount = 8;
-           easterEggActive = false;
            gameOverAlpha = 0;
            displayScore = 0;
            for (let i = 0; i < 24; i++) {
                impactParticles.push(new ImpactParticle(bird.x, bird.y));
+           }
+
+           if (rushMode) {
+               if (score > bestRushScore) {
+                   bestRushScore = score;
+                   localStorage.setItem('duxHighFlyBestRush', bestRushScore);
+                   lastScoreWasHighScore = true;
+               } else {
+                   lastScoreWasHighScore = false;
+               }
+               gameState = 'over';
+               return;
            }
 
            if (midnightMode) {
@@ -731,8 +918,9 @@
                    duxTapCount++;
                    if (duxTapCount === 5) {
                        easterEggActive = true;
-                       launchConfetti(width / 2, height / 2, 200); 
-                       duxTapCount = 0; 
+                       rushUnlocked = true;
+                       launchConfetti(width / 2, height / 2, 200);
+                       duxTapCount = 0;
                    }
                }
            }
@@ -759,30 +947,46 @@
 
            let btnWidth, btnHeight;
            if (gameState === 'start') {
-               btnWidth = min(width * 0.7, 400);
-               btnHeight = height * 0.08;
-               if (mouseX > width/2 - btnWidth/2 && mouseX < width/2 + btnWidth/2 && mouseY > height*0.65 - btnHeight/2 && mouseY < height*0.65 + btnHeight/2) {
+               let L = startMenuLayout();
+               btnWidth = L.btnWidth;
+               btnHeight = L.btnHeight;
+               let base = L.base;
+               let step = L.step;
+               if (isMouseOverRect(width/2, base, btnWidth, btnHeight)) {
                    midnightMode = false;
+                   rushMode = false;
                    startGame();
                }
-               if (mouseX > width/2 - btnWidth/2 && mouseX < width/2 + btnWidth/2 && mouseY > height*0.65 + btnHeight + 20 - btnHeight/2 && mouseY < height*0.65 + btnHeight + 20 + btnHeight/2) {
+               if (isMouseOverRect(width/2, base + step, btnWidth, btnHeight)) {
                    midnightMode = true;
+                   rushMode = false;
                    startGame();
                }
-               if (mouseX > width/2 - btnWidth/2 && mouseX < width/2 + btnWidth/2 && mouseY > height*0.65 + (btnHeight + 20) * 2 - btnHeight/2 && mouseY < height*0.65 + (btnHeight + 20) * 2 + btnHeight/2) {
+               if (isMouseOverRect(width/2, base + step * 2, btnWidth, btnHeight)) {
                    gameState = 'leaderboard';
+               }
+               if (rushUnlocked && isMouseOverRect(width/2, base + step * 3, btnWidth, btnHeight)) {
+                   midnightMode = false;
+                   rushMode = true;
+                   startGame();
                }
            } else if (gameState === 'over') {
                btnWidth = min(width * 0.7, 400);
                btnHeight = height * 0.08;
-               if (mouseX > width/2 - btnWidth/2 && mouseX < width/2 + btnWidth/2 && mouseY > height*0.7 - btnHeight/2 && mouseY < height*0.7 + btnHeight/2) {
+               let step = btnHeight + 20;
+               if (isMouseOverRect(width/2, height*0.7, btnWidth, btnHeight)) {
                    startGame();
                }
-               if (mouseX > width/2 - btnWidth/2 && mouseX < width/2 + btnWidth/2 && mouseY > height*0.7 + btnHeight + 20 - btnHeight/2 && mouseY < height*0.7 + btnHeight + 20 + btnHeight/2) {
-                   midnightMode = !midnightMode;
-                   startGame();
+               if (isMouseOverRect(width/2, height*0.7 + step, btnWidth, btnHeight)) {
+                   if (rushMode) {
+                       rushMode = false;
+                       gameState = 'start';
+                   } else {
+                       midnightMode = !midnightMode;
+                       startGame();
+                   }
                }
-                if (mouseX > width/2 - btnWidth/2 && mouseX < width/2 + btnWidth/2 && mouseY > height*0.7 + (btnHeight + 20) * 2 - btnHeight/2 && mouseY < height*0.7 + (btnHeight + 20) * 2 + btnHeight/2) {
+               if (!rushMode && isMouseOverRect(width/2, height*0.7 + step * 2, btnWidth, btnHeight)) {
                    gameState = 'leaderboard';
                }
            } else if (gameState === 'leaderboard') {
@@ -802,6 +1006,7 @@
            impactParticles = [];
            neonTrail = [];
            shieldParticles = [];
+           hazards = [];
            powerUp = null;
            hasShield = false;
            shieldGraceFrames = 0;
@@ -816,6 +1021,10 @@
            for (let i = 0; i < 3; i++) {
                clouds.push(new Cloud(random(width, width * 1.5), random(height * 0.05, height * 0.25)));
            }
+           if (rushMode) {
+               rushShapes = [];
+               for (let i = 0; i < 14; i++) rushShapes.push(new RushShape());
+           }
        }
        
        class Bird {
@@ -826,6 +1035,17 @@
            show() {
                let imgToShow = easterEggActive ? secretBirdImg : birdImg;
                push();
+               if (rushMode) {
+                   // Cycling halo behind the duck. The tint is kept pale on
+                   // purpose: tint() multiplies, so a saturated colour over the
+                   // magenta sprite renders it nearly black.
+                   noStroke();
+                   fill(rushColor(90, 90, 100, 90));
+                   ellipse(this.x, this.y, this.size * 1.7);
+                   fill(rushColor(200, 80, 100, 70));
+                   ellipse(this.x, this.y, this.size * 1.25);
+                   tint(rushColor(90, 30, 100));
+               }
                translate(this.x, this.y);
                let angle = map(this.velocity, -10, 15, -PI / 4, PI / 4);
                if (gameState !== 'play') angle = 0;
@@ -897,6 +1117,108 @@
            }
        }
 
+       // Telegraphed horizontal laser bar: warns, fires, fades.
+       class LaserBar {
+           constructor() {
+               this.y = random(height * 0.18, height * 0.82);
+               this.thickness = height * 0.05;
+               this.warn = 55;
+               this.active = 45;
+               this.fade = 18;
+               // warm danger hue, deliberately outside the cool backdrop band
+               this.hue = random([348, 356, 8]);
+           }
+           update() {
+               if (this.warn > 0) this.warn--;
+               else if (this.active > 0) this.active--;
+               else if (this.fade > 0) this.fade--;
+           }
+           isFiring() { return this.warn <= 0 && this.active > 0; }
+           done() { return this.warn <= 0 && this.active <= 0 && this.fade <= 0; }
+           show() {
+               push();
+               colorMode(HSB, 360, 100, 100, 255);
+               noStroke();
+               if (this.warn > 0) {
+                   // flashing warning strip + edge chevrons
+                   let blink = (frameCount % 10 < 5) ? 255 : 120;
+                   fill(this.hue, 95, 100, blink * 0.42);
+                   rect(0, this.y - this.thickness / 2, width, this.thickness);
+                   fill(this.hue, 90, 100, blink);
+                   rect(0, this.y - 3, width, 6);
+                   // hatched edges so it reads as "charging"
+                   for (let hx = 0; hx < width; hx += 44) {
+                       fill(this.hue, 70, 100, blink * 0.7);
+                       rect(hx, this.y - this.thickness / 2, 22, 4);
+                       rect(hx + 22, this.y + this.thickness / 2 - 4, 22, 4);
+                   }
+                   textAlign(CENTER, CENTER);
+                   textFont('Press Start 2P');
+                   textSize(this.thickness * 0.5);
+                   fill(0, 0, 100, blink);
+                   text('!', width * 0.05, this.y);
+                   text('!', width * 0.95, this.y);
+               } else if (this.active > 0) {
+                   let t = this.thickness;
+                   fill(this.hue, 80, 100, 70);
+                   rect(0, this.y - t * 0.9, width, t * 1.8);
+                   fill(this.hue, 85, 100, 220);
+                   rect(0, this.y - t / 2, width, t);
+                   fill(0, 0, 100, 230);
+                   rect(0, this.y - t * 0.16, width, t * 0.32);
+               } else if (this.fade > 0) {
+                   fill(this.hue, 60, 100, map(this.fade, 0, 18, 0, 120));
+                   rect(0, this.y - this.thickness / 4, width, this.thickness / 2);
+               }
+               pop();
+           }
+           hits(bird) {
+               if (!this.isFiring()) return false;
+               let r = bird.size / 4;
+               return (bird.y + r > this.y - this.thickness / 2) && (bird.y - r < this.y + this.thickness / 2);
+           }
+       }
+
+       // Drifting neon shapes in the RUSH backdrop.
+       class RushShape {
+           constructor() {
+               this.reset(true);
+           }
+           reset(anywhere = false) {
+               this.x = anywhere ? random(width) : width + random(40, 200);
+               this.y = random(height * 0.05, height * 0.9);
+               this.size = random(height * 0.03, height * 0.11);
+               this.speed = random(0.6, 2.4);
+               this.spin = random(-0.03, 0.03);
+               this.angle = random(TWO_PI);
+               this.kind = floor(random(3));
+               this.hueOffset = random(360);
+           }
+           update() {
+               this.x -= this.speed;
+               this.angle += this.spin;
+               if (this.x < -this.size * 2) this.reset();
+           }
+           show() {
+               push();
+               translate(this.x, this.y);
+               rotate(this.angle);
+               noFill();
+               stroke(rushColor(this.hueOffset, 80, 100, 110));
+               strokeWeight(2);
+               if (this.kind === 0) {
+                   ellipse(0, 0, this.size);
+               } else if (this.kind === 1) {
+                   triangle(0, -this.size / 2, this.size / 2, this.size / 2, -this.size / 2, this.size / 2);
+               } else {
+                   rectMode(CENTER);
+                   rect(0, 0, this.size, this.size, 4);
+                   rectMode(CORNER);
+               }
+               pop();
+           }
+       }
+
        class ShieldParticle {
            constructor(x, y) {
                this.x = x + random(-4, 4);
@@ -913,10 +1235,11 @@
 
        class Pipe {
            constructor(previousPipe) {
-               this.spacing = midnightMode ? height * 0.28 : height * 0.35;
+               this.spacing = rushMode ? height * 0.33 : (midnightMode ? height * 0.28 : height * 0.35);
                this.w = width * 0.1;
-               this.speed = midnightMode ? width * 0.0065 : width * 0.005;
+               this.speed = rushMode ? width * 0.0078 : (midnightMode ? width * 0.0065 : width * 0.005);
                this.passed = false;
+               this.rushHueOffset = random(360);
 
                const dayPalettes = [
                    [color(110, 200, 60), color(70, 150, 40)],
@@ -975,6 +1298,7 @@
            }
            
            show() {
+               if (rushMode) { this.showRush(); return; }
                noStroke();
                fill(this.color1);
                rect(this.x, 0, this.w, this.top);
@@ -1007,7 +1331,28 @@
                rect(this.x - 5, this.top - 25, this.w + 10, 25);
                rect(this.x - 5, height - this.bottom, this.w + 10, 25);
            }
-           update() { this.x -= this.speed; if (midnightMode) { this.speed *= 1.0005; } }
+           showRush() {
+               push();
+               noStroke();
+               // outer glow
+               fill(rushColor(this.rushHueOffset, 85, 100, 55));
+               rect(this.x - 6, 0, this.w + 12, this.top);
+               rect(this.x - 6, height - this.bottom, this.w + 12, this.bottom);
+               // body
+               fill(rushColor(this.rushHueOffset, 80, 65));
+               rect(this.x, 0, this.w, this.top);
+               rect(this.x, height - this.bottom, this.w, this.bottom);
+               // bright inner core stripe
+               fill(rushColor(this.rushHueOffset + 40, 55, 100, 220));
+               rect(this.x + this.w * 0.34, 0, this.w * 0.32, this.top);
+               rect(this.x + this.w * 0.34, height - this.bottom, this.w * 0.32, this.bottom);
+               // lip caps
+               fill(rushColor(this.rushHueOffset + 180, 70, 100));
+               rect(this.x - 6, this.top - 22, this.w + 12, 22);
+               rect(this.x - 6, height - this.bottom, this.w + 12, 22);
+               pop();
+           }
+           update() { this.x -= this.speed; if (midnightMode || rushMode) { this.speed *= 1.0005; } }
            offscreen() { return this.x < -this.w; }
            hits(bird) { let r = bird.size / 4; if (bird.y - r < this.top || bird.y + r > height - this.bottom) { if (bird.x + r > this.x && bird.x - r < this.x + this.w) { return true; } } return false; }
        }
@@ -1060,7 +1405,7 @@
        }
 
        class ScorePopup {
-           constructor(x, y) { this.x = x; this.y = y; this.life = 40; this.alpha = 255; }
+           constructor(x, y, amount = 5) { this.x = x; this.y = y; this.life = 40; this.alpha = 255; this.amount = amount; }
            update() { this.y -= 1.5; this.life--; this.alpha = map(this.life, 0, 40, 0, 255); }
            show() {
                push();
@@ -1070,7 +1415,7 @@
                fill(255, 255, 255, this.alpha);
                stroke(0, this.alpha);
                strokeWeight(3);
-               text('+5', this.x, this.y);
+               text(`+${this.amount}`, this.x, this.y);
                pop();
            }
            offscreen() { return this.life <= 0; }
