@@ -189,6 +189,7 @@
        let shakeAmount = 0;
        let scorePopups = [];
        let impactParticles = [];
+       let neonTrail = [];
        let gameOverAlpha = 0;
        let displayScore = 0;
        let lastScoreWasHighScore = false;
@@ -210,7 +211,7 @@
        
        function preload() {
            birdImg = loadImage("https://i.imgur.com/3erQEDH.png");
-           secretBirdImg = loadImage("https://i.imgur.com/nkzk9Mn.png"); 
+           secretBirdImg = loadImage("assets/secret-bird-neon.png");
            titleImg = loadImage("https://i.imgur.com/kf0McQi.png");
            sunImg = loadImage("https://i.imgur.com/y9Clgrb.png");
            moonImg = loadImage("https://i.imgur.com/6h9c1qN.png");
@@ -293,6 +294,14 @@
                bird.show();
                playGame();
                bird.update();
+               if (easterEggActive) {
+                   neonTrail.push(new NeonSparkle(bird.x - bird.size * 0.35, bird.y));
+               }
+               for (let i = neonTrail.length - 1; i >= 0; i--) {
+                   neonTrail[i].update();
+                   neonTrail[i].show();
+                   if (neonTrail[i].offscreen()) neonTrail.splice(i, 1);
+               }
                for (let i = scorePopups.length - 1; i >= 0; i--) {
                    scorePopups[i].update();
                    scorePopups[i].show();
@@ -743,6 +752,7 @@
            confetti = [];
            scorePopups = [];
            impactParticles = [];
+           neonTrail = [];
            gameOverAlpha = 0;
            displayScore = 0;
            lastScoreWasHighScore = false;
@@ -952,6 +962,25 @@
            }
            update() { this.vy += 0.3; this.x += this.vx; this.y += this.vy; this.alpha -= 8; }
            show() { push(); noStroke(); fill(255, 255, 255, max(this.alpha, 0)); ellipse(this.x, this.y, this.size); pop(); }
+           offscreen() { return this.alpha <= 0; }
+       }
+
+       class NeonSparkle {
+           constructor(x, y) {
+               this.x = x + random(-6, 6);
+               this.y = y + random(-6, 6);
+               this.size = random(3, 7);
+               this.alpha = 220;
+               this.col = random([color(255, 60, 200), color(255, 120, 220), color(200, 60, 255)]);
+           }
+           update() { this.alpha -= 12; }
+           show() {
+               push();
+               noStroke();
+               fill(red(this.col), green(this.col), blue(this.col), max(this.alpha, 0));
+               ellipse(this.x, this.y, this.size);
+               pop();
+           }
            offscreen() { return this.alpha <= 0; }
        }
 
