@@ -165,7 +165,7 @@
 
 <script>
        // Your p5.js game code
-       const DEPLOY_VERSION = '1.4.0';
+       const DEPLOY_VERSION = '1.5.0';
        let bird;
        let birdImg, secretBirdImg, titleImg, sunImg, moonImg;
        let dayCloudImgs = [], nightCloudImgs = [];
@@ -193,6 +193,13 @@
        let gameOverAlpha = 0;
        let displayScore = 0;
        let lastScoreWasHighScore = false;
+
+       // --- Shield power-up state ---
+       let powerUp = null;
+       let hasShield = false;
+       let shieldGraceFrames = 0;
+       let shieldFlashTimer = 0;
+       let shieldParticles = [];
 
        window.p5 = this;
        
@@ -290,7 +297,17 @@
                    for (let i = 0; i < 3; i++) { rain.push(new Rain(random(width), random(-100, 0))); }
                    for (let i = rain.length - 1; i >= 0; i--) { rain[i].fall(); rain[i].show(); if (rain[i].offscreen()) rain.splice(i, 1); }
                }
+               if (shieldFlashTimer > 0) {
+                   push();
+                   fill(255, 215, 60, 120);
+                   noStroke();
+                   rectMode(CORNER);
+                   rect(0, 0, width, height);
+                   pop();
+                   shieldFlashTimer--;
+               }
                for (let p of pipes) { p.show(); }
+               if (powerUp) powerUp.show();
                bird.show();
                playGame();
                bird.update();
@@ -301,6 +318,11 @@
                    neonTrail[i].update();
                    neonTrail[i].show();
                    if (neonTrail[i].offscreen()) neonTrail.splice(i, 1);
+               }
+               for (let i = shieldParticles.length - 1; i >= 0; i--) {
+                   shieldParticles[i].update();
+                   shieldParticles[i].show();
+                   if (shieldParticles[i].offscreen()) shieldParticles.splice(i, 1);
                }
                for (let i = scorePopups.length - 1; i >= 0; i--) {
                    scorePopups[i].update();
@@ -607,15 +629,29 @@
        }
        
        function playGame() {
+           if (shieldGraceFrames > 0) shieldGraceFrames--;
+
            let interval = midnightMode ? max(30, 70 - floor(score / 10)) : 90;
             if (frameCount % interval === 0) {
                let lastPipe = pipes.length > 0 ? pipes[pipes.length - 1] : null;
-               pipes.push(new Pipe(lastPipe));
+               let newPipe = new Pipe(lastPipe);
+               pipes.push(newPipe);
+               if (!hasShield && !powerUp && score > 0 && random() < 0.18) {
+                   powerUp = new PowerUp(newPipe.x + newPipe.w / 2, newPipe.top + newPipe.spacing / 2);
+               }
            }
            for (let i = pipes.length - 1; i >= 0; i--) {
                pipes[i].update();
-               if (pipes[i].hits(bird)) {
-                   endGame();
+               if (pipes[i].hits(bird) && shieldGraceFrames <= 0) {
+                   if (hasShield) {
+                       hasShield = false;
+                       shieldGraceFrames = 24;
+                       shieldFlashTimer = 8;
+                       bird.velocity = bird.lift * 0.6;
+                       for (let k = 0; k < 20; k++) shieldParticles.push(new ShieldParticle(bird.x, bird.y));
+                   } else {
+                       endGame();
+                   }
                }
                if (!pipes[i].passed && pipes[i].x + pipes[i].w < bird.x) {
                    pipes[i].passed = true;
@@ -627,6 +663,18 @@
                    pipes.splice(i, 1);
                }
            }
+
+           if (powerUp) {
+               powerUp.update();
+               if (powerUp.hits(bird)) {
+                   hasShield = true;
+                   for (let k = 0; k < 18; k++) shieldParticles.push(new ShieldParticle(powerUp.x, powerUp.y));
+                   powerUp = null;
+               } else if (powerUp.offscreen()) {
+                   powerUp = null;
+               }
+           }
+
            if (bird.y > height - bird.size / 2 || bird.y < bird.size / 2) {
                endGame();
            }
@@ -753,6 +801,11 @@
            scorePopups = [];
            impactParticles = [];
            neonTrail = [];
+           shieldParticles = [];
+           powerUp = null;
+           hasShield = false;
+           shieldGraceFrames = 0;
+           shieldFlashTimer = 0;
            gameOverAlpha = 0;
            displayScore = 0;
            lastScoreWasHighScore = false;
@@ -784,10 +837,80 @@
                }
                image(imgToShow, 0, 0, this.size, this.size);
                pop();
+
+               if (gameState === 'play' && hasShield) {
+                   push();
+                   noFill();
+                   stroke(255, 215, 60, 180 + sin(frameCount * 0.3) * 60);
+                   strokeWeight(3);
+                   ellipse(this.x, this.y, this.size * 1.35 + sin(frameCount * 0.2) * 4);
+                   pop();
+               }
             }
            up() { this.velocity = this.lift; }
        }
        
+       function drawStar(x, y, radius1, radius2, npoints) {
+           let angle = TWO_PI / npoints;
+           let halfAngle = angle / 2.0;
+           beginShape();
+           for (let a = 0; a < TWO_PI; a += angle) {
+               let sx = x + cos(a) * radius2;
+               let sy = y + sin(a) * radius2;
+               vertex(sx, sy);
+               sx = x + cos(a + halfAngle) * radius1;
+               sy = y + sin(a + halfAngle) * radius1;
+               vertex(sx, sy);
+           }
+           endShape(CLOSE);
+       }
+
+       class PowerUp {
+           constructor(x, y) {
+               this.x = x;
+               this.y = y;
+               this.size = height * 0.05;
+               this.speed = midnightMode ? width * 0.0065 : width * 0.005;
+               this.angle = 0;
+           }
+           update() {
+               this.x -= this.speed;
+               if (midnightMode) this.speed *= 1.0005;
+               this.angle += 0.06;
+           }
+           show() {
+               push();
+               translate(this.x, this.y);
+               let pulse = 1 + sin(frameCount * 0.15) * 0.1;
+               noStroke();
+               fill(255, 215, 60, 50);
+               ellipse(0, 0, this.size * 2.2 * pulse);
+               rotate(this.angle);
+               fill(255, 223, 70);
+               drawStar(0, 0, this.size * 0.28, this.size * 0.6, 5);
+               pop();
+           }
+           offscreen() { return this.x < -this.size * 2; }
+           hits(bird) {
+               let r = this.size * 0.9 + bird.size * 0.35;
+               return dist(this.x, this.y, bird.x, bird.y) < r;
+           }
+       }
+
+       class ShieldParticle {
+           constructor(x, y) {
+               this.x = x + random(-4, 4);
+               this.y = y + random(-4, 4);
+               this.vx = random(-3, 3);
+               this.vy = random(-3, 3);
+               this.size = random(3, 7);
+               this.alpha = 255;
+           }
+           update() { this.x += this.vx; this.y += this.vy; this.alpha -= 10; }
+           show() { push(); noStroke(); fill(255, 215, 60, max(this.alpha, 0)); ellipse(this.x, this.y, this.size); pop(); }
+           offscreen() { return this.alpha <= 0; }
+       }
+
        class Pipe {
            constructor(previousPipe) {
                this.spacing = midnightMode ? height * 0.28 : height * 0.35;
