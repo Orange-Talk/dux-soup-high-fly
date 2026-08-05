@@ -72,18 +72,24 @@
        const showKeyboardBtn = document.getElementById('show-keyboard-btn');
        const inputContainer = document.getElementById('input-container');
 
-       let leaderboardDayRef, leaderboardNightRef;
+       let leaderboardDayRef, leaderboardNightRef, leaderboardRushRef;
        let localLeaderboardDay = [];
        let localLeaderboardNight = [];
+       let localLeaderboardRush = [];
        let newHighScore = null;
+
+       const listForMode = (mode) =>
+           mode === 'rush' ? localLeaderboardRush : (mode === 'night' ? localLeaderboardNight : localLeaderboardDay);
+       const refForMode = (mode) =>
+           mode === 'rush' ? leaderboardRushRef : (mode === 'night' ? leaderboardNightRef : leaderboardDayRef);
 
        const handleSubmit = async () => {
            if (!newHighScore) return;
            const name = nameInput.value.trim() || 'Anonymous';
            newHighScore.name = name;
-           const isNightMode = newHighScore.isNightMode;
-           const relevantLeaderboard = isNightMode ? localLeaderboardNight : localLeaderboardDay;
-           const relevantRef = isNightMode ? leaderboardNightRef : leaderboardDayRef;
+           const mode = newHighScore.mode;
+           const relevantLeaderboard = listForMode(mode);
+           const relevantRef = refForMode(mode);
            const updatedScores = [...relevantLeaderboard, newHighScore].sort((a, b) => b.score - a.score).slice(0, 20);
            try {
                await setDoc(relevantRef, { scores: updatedScores });
@@ -101,12 +107,12 @@
            window.p5.loop();
        };
 
-       const checkHighScore = (score, isNightMode) => {
+       const checkHighScore = (score, mode) => {
            if (score === 0) return false;
-           const relevantLeaderboard = isNightMode ? localLeaderboardNight : localLeaderboardDay;
+           const relevantLeaderboard = listForMode(mode);
            const lowestScore = relevantLeaderboard.length > 0 ? relevantLeaderboard[relevantLeaderboard.length - 1].score : 0;
            if (score > lowestScore || relevantLeaderboard.length < 20) {
-               newHighScore = { score, isNightMode };
+               newHighScore = { score, mode };
                nameModal.classList.remove('hidden');
                nameModal.classList.add('flex');
                window.p5.noLoop();
@@ -117,9 +123,12 @@
        window.checkHighScore = checkHighScore;
 
        function setupLeaderboardListeners() {
-           let dayDataReceived = false, nightDataReceived = false, initialLoadSignaled = false;
+           let dayDataReceived = false, nightDataReceived = false, rushDataReceived = false, initialLoadSignaled = false;
+           const push = () => {
+               if (window.p5) window.p5.setLeaderboards(localLeaderboardDay, localLeaderboardNight, localLeaderboardRush);
+           };
            const signalReady = () => {
-               if (dayDataReceived && nightDataReceived && !initialLoadSignaled) {
+               if (dayDataReceived && nightDataReceived && rushDataReceived && !initialLoadSignaled) {
                    initialLoadSignaled = true;
                    if (window.p5 && typeof window.p5.firebaseReady === 'function') {
                        window.p5.firebaseReady();
@@ -130,14 +139,21 @@
            onSnapshot(leaderboardDayRef, (doc) => {
                localLeaderboardDay = doc.exists() ? doc.data().scores || [] : [];
                dayDataReceived = true;
-               if (window.p5) window.p5.setLeaderboards(localLeaderboardDay, localLeaderboardNight);
+               push();
                signalReady();
            });
            leaderboardNightRef = doc(db, `artifacts/${appId}/public/data/leaderboard/night_mode`);
            onSnapshot(leaderboardNightRef, (doc) => {
                localLeaderboardNight = doc.exists() ? doc.data().scores || [] : [];
                nightDataReceived = true;
-               if (window.p5) window.p5.setLeaderboards(localLeaderboardDay, localLeaderboardNight);
+               push();
+               signalReady();
+           });
+           leaderboardRushRef = doc(db, `artifacts/${appId}/public/data/leaderboard/rush_mode`);
+           onSnapshot(leaderboardRushRef, (doc) => {
+               localLeaderboardRush = doc.exists() ? doc.data().scores || [] : [];
+               rushDataReceived = true;
+               push();
                signalReady();
            });
        }
@@ -165,7 +181,7 @@
 
 <script>
        // Your p5.js game code
-       const DEPLOY_VERSION = '1.6.0';
+       const DEPLOY_VERSION = '1.7.0';
        let bird;
        let birdImg, secretBirdImg, titleImg, sunImg, moonImg;
        let dayCloudImgs = [], nightCloudImgs = [];
@@ -179,6 +195,8 @@
        let confetti = [];
        let leaderboardDayData = [];
        let leaderboardNightData = [];
+       let leaderboardRushData = [];
+       let leaderboardTab = 'day';
        let bestDayScore = 0;
        let bestNightScore = 0;
 
@@ -211,9 +229,10 @@
 
        window.p5 = this;
        
-       this.setLeaderboards = (dayData, nightData) => {
+       this.setLeaderboards = (dayData, nightData, rushData) => {
            leaderboardDayData = dayData;
            leaderboardNightData = nightData;
+           leaderboardRushData = rushData || [];
        }
        this.resetGameAfterScoreSubmit = () => {
             gameState = 'over';
@@ -457,6 +476,31 @@
            pop();
        }
 
+       function currentMode() {
+           return rushMode ? 'rush' : (midnightMode ? 'night' : 'day');
+       }
+
+       // Difficulty ramps with score instead of being fixed, so every mode
+       // opens forgiving and tightens as a run goes on. `ramp` is the score at
+       // which a mode reaches its hardest settings.
+       function modeDifficulty() {
+           let cfg;
+           if (rushMode) {
+               cfg = { ramp: 900, gap: [0.40, 0.26], spd: [0.0058, 0.0105], iv: [84, 40] };
+           } else if (midnightMode) {
+               cfg = { ramp: 700, gap: [0.36, 0.25], spd: [0.0055, 0.0095], iv: [85, 45] };
+           } else {
+               cfg = { ramp: 900, gap: [0.42, 0.30], spd: [0.0042, 0.0072], iv: [105, 62] };
+           }
+           let t = constrain(score / cfg.ramp, 0, 1);
+           return {
+               spacing: lerp(cfg.gap[0], cfg.gap[1], t) * height,
+               speed: lerp(cfg.spd[0], cfg.spd[1], t) * width,
+               interval: round(lerp(cfg.iv[0], cfg.iv[1], t)),
+               t
+           };
+       }
+
        // Menu button metrics. With RUSH unlocked there are 4 buttons, so they
        // shrink and the stack is anchored to the bottom to stay on screen.
        function startMenuLayout() {
@@ -558,6 +602,7 @@
            if (rushMode) {
                drawRushButton("RUSH AGAIN", width / 2, gBy1, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy1, btnWidth, btnHeight));
                drawButton("Exit Rush", width / 2, gBy2, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy2, btnWidth, btnHeight));
+               drawButton("Leaderboard", width / 2, gBy3, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy3, btnWidth, btnHeight));
            } else {
                drawButton("Fly Again", width / 2, gBy1, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy1, btnWidth, btnHeight));
                if (midnightMode) {
@@ -585,48 +630,91 @@
            }
        }
 
+       const LEADERBOARD_TABS = [
+           { id: 'day', label: 'DAY' },
+           { id: 'night', label: 'MIDNIGHT' },
+           { id: 'rush', label: 'RUSH' }
+       ];
+
+       function leaderboardTabRect(i) {
+           let tabW = min(width * 0.29, 190);
+           let tabH = max(height * 0.06, 34);
+           let gap = tabW * 0.06;
+           let totalW = tabW * 3 + gap * 2;
+           let x = width / 2 - totalW / 2 + tabW / 2 + i * (tabW + gap);
+           return { x, y: height * 0.09, w: tabW, h: tabH };
+       }
+
+       function leaderboardDataFor(id) {
+           if (id === 'rush') return leaderboardRushData;
+           if (id === 'night') return leaderboardNightData;
+           return leaderboardDayData;
+       }
+
        function drawLeaderboardScreen() {
            fill(0, 0, 0, 150);
            rect(0, 0, width, height);
            textFont('Press Start 2P');
            textAlign(CENTER, CENTER);
 
-           const useVerticalLayout = width < 640;
+           // mode tabs
+           for (let i = 0; i < LEADERBOARD_TABS.length; i++) {
+               let tab = LEADERBOARD_TABS[i];
+               let r = leaderboardTabRect(i);
+               let selected = leaderboardTab === tab.id;
+               let hovered = isMouseOverRect(r.x, r.y, r.w, r.h);
+               push();
+               rectMode(CENTER);
+               strokeWeight(selected ? 3 : 2);
+               if (tab.id === 'rush') {
+                   stroke(selected ? color(255, 255, 255) : color(255, 120, 220));
+                   fill(selected ? color(150, 40, 170) : (hovered ? color(90, 30, 110) : color(45, 20, 60)));
+               } else {
+                   stroke(selected ? color(255, 255, 255) : color(150, 170, 220));
+                   fill(selected ? color(60, 100, 255) : (hovered ? color(45, 60, 130) : color(25, 30, 60)));
+               }
+               rect(r.x, r.y, r.w, r.h, 8);
+               noStroke();
+               fill(selected ? 255 : 200);
+               textFont('Press Start 2P');
+               textSize(min(r.h * 0.3, r.w * 0.13));
+               textAlign(CENTER, CENTER);
+               text(tab.label, r.x, r.y);
+               pop();
+           }
 
-           if (useVerticalLayout) {
-               let leadSize = height * 0.02;
-               let entrySize = height * 0.014;
-               let lineGap = height * 0.006;
+           let data = leaderboardDataFor(leaderboardTab);
 
-               textSize(leadSize);
-               fill(255, 215, 0);
-               text('--- DAY FLIGHT ---', width / 2, height * 0.08);
-               let dayY = height * 0.12;
-               drawLeaderboardColumn(leaderboardDayData, 0, 10, width * 0.08, width * 0.46, dayY, entrySize, lineGap);
-               drawLeaderboardColumn(leaderboardDayData, 10, 10, width * 0.54, width * 0.92, dayY, entrySize, lineGap);
+           push();
+           textFont('Press Start 2P');
+           textAlign(CENTER, CENTER);
+           textSize(height * 0.022);
+           fill(leaderboardTab === 'rush' ? color(255, 120, 220) : color(255, 215, 0));
+           let heading = leaderboardTab === 'rush' ? '--- RUSH ---'
+               : (leaderboardTab === 'night' ? '--- MIDNIGHT FLIGHT ---' : '--- DAY FLIGHT ---');
+           text(heading, width / 2, height * 0.2);
+           pop();
 
-               textSize(leadSize);
-               fill(255, 215, 0);
-               text('--- MIDNIGHT FLIGHT ---', width / 2, height * 0.46);
-               let nightY = height * 0.5;
-               drawLeaderboardColumn(leaderboardNightData, 0, 10, width * 0.08, width * 0.46, nightY, entrySize, lineGap);
-               drawLeaderboardColumn(leaderboardNightData, 10, 10, width * 0.54, width * 0.92, nightY, entrySize, lineGap);
-
+           if (data.length === 0) {
+               push();
+               textFont('Press Start 2P');
+               textAlign(CENTER, CENTER);
+               textSize(height * 0.018);
+               fill(220);
+               text('No scores yet', width / 2, height * 0.35);
+               pop();
+           } else if (width < 640) {
+               // One full-width column: two narrow columns let 10-character
+               // names collide with their scores on a phone.
+               let entrySize = height * 0.015;
+               let lineGap = height * 0.0085;
+               drawLeaderboardColumn(data, 0, 20, width * 0.1, width * 0.9, height * 0.27, entrySize, lineGap);
            } else {
-               let leadSize = height * 0.025;
-               let entrySize = height * 0.018;
-               let lineGap = height * 0.008;
-
-               textSize(leadSize);
-               fill(255, 215, 0);
-               text('--- DAY FLIGHT ---', width * 0.25, height * 0.13);
-               text('--- MIDNIGHT FLIGHT ---', width * 0.75, height * 0.13);
-
-               let entryY = height * 0.19;
-               drawLeaderboardColumn(leaderboardDayData, 0, 10, width * 0.06, width * 0.23, entryY, entrySize, lineGap);
-               drawLeaderboardColumn(leaderboardDayData, 10, 10, width * 0.27, width * 0.44, entryY, entrySize, lineGap);
-               drawLeaderboardColumn(leaderboardNightData, 0, 10, width * 0.56, width * 0.73, entryY, entrySize, lineGap);
-               drawLeaderboardColumn(leaderboardNightData, 10, 10, width * 0.77, width * 0.94, entryY, entrySize, lineGap);
+               let entrySize = height * 0.02;
+               let lineGap = height * 0.009;
+               let entryY = height * 0.28;
+               drawLeaderboardColumn(data, 0, 10, width * 0.08, width * 0.44, entryY, entrySize, lineGap);
+               drawLeaderboardColumn(data, 10, 10, width * 0.56, width * 0.92, entryY, entrySize, lineGap);
            }
 
            let btnWidth = min(width * 0.7, 400);
@@ -649,7 +737,7 @@
            let btnHeight = height * 0.08;
            let step = btnHeight + 20;
            if (gameState === 'over') {
-               return height * 0.7 + step * (rushMode ? 1 : 2) + btnHeight / 2 + 30;
+               return height * 0.7 + step * 2 + btnHeight / 2 + 30;
            }
            return height * 0.9 + btnHeight / 2 + 30;
        }
@@ -779,15 +867,12 @@
        function playGame() {
            if (shieldGraceFrames > 0) shieldGraceFrames--;
 
-           let interval;
-           if (rushMode) {
-               interval = max(34, 62 - floor(score / 20));
-           } else if (midnightMode) {
-               interval = max(30, 70 - floor(score / 10));
-           } else {
-               interval = 90;
-           }
-            if (frameCount % interval === 0) {
+           let diff = modeDifficulty();
+           // While a laser is telegraphing/firing, hold off on new pipes. That
+           // keeps the corridor the player must thread through predictable, and
+           // reads as a deliberate breather in the pipe rhythm.
+           let holdPipes = rushMode && hazards.length > 0;
+            if (frameCount % diff.interval === 0 && !holdPipes) {
                let lastPipe = pipes.length > 0 ? pipes[pipes.length - 1] : null;
                let newPipe = new Pipe(lastPipe);
                pipes.push(newPipe);
@@ -797,8 +882,9 @@
            }
 
            if (rushMode) {
-               if (score >= 30 && hazards.length < 2 && random() < 0.011) {
-                   hazards.push(new LaserBar());
+               // One laser at a time, and only once a run is properly underway.
+               if (score >= 150 && hazards.length === 0 && random() < lerp(0.005, 0.013, diff.t)) {
+                   spawnSafeLaser();
                }
                for (let i = hazards.length - 1; i >= 0; i--) {
                    hazards[i].update();
@@ -871,15 +957,8 @@
                if (score > bestRushScore) {
                    bestRushScore = score;
                    localStorage.setItem('duxHighFlyBestRush', bestRushScore);
-                   lastScoreWasHighScore = true;
-               } else {
-                   lastScoreWasHighScore = false;
                }
-               gameState = 'over';
-               return;
-           }
-
-           if (midnightMode) {
+           } else if (midnightMode) {
                if (score > bestNightScore) {
                    bestNightScore = score;
                    localStorage.setItem('duxHighFlyBestNight', bestNightScore);
@@ -891,7 +970,7 @@
                }
            }
 
-           if (window.checkHighScore(score, midnightMode)) {
+           if (window.checkHighScore(score, currentMode())) {
                lastScoreWasHighScore = true;
                gameState = 'entering_name';
            } else {
@@ -986,13 +1065,21 @@
                        startGame();
                    }
                }
-               if (!rushMode && isMouseOverRect(width/2, height*0.7 + step * 2, btnWidth, btnHeight)) {
+               if (isMouseOverRect(width/2, height*0.7 + step * 2, btnWidth, btnHeight)) {
+                   leaderboardTab = currentMode();
                    gameState = 'leaderboard';
                }
            } else if (gameState === 'leaderboard') {
+               for (let i = 0; i < LEADERBOARD_TABS.length; i++) {
+                   let r = leaderboardTabRect(i);
+                   if (isMouseOverRect(r.x, r.y, r.w, r.h)) {
+                       leaderboardTab = LEADERBOARD_TABS[i].id;
+                       return;
+                   }
+               }
                btnWidth = min(width * 0.7, 400);
                btnHeight = height * 0.08;
-               if (mouseX > width/2 - btnWidth/2 && mouseX < width/2 + btnWidth/2 && mouseY > height*0.9 - btnHeight/2 && mouseY < height*0.9 + btnHeight/2) {
+               if (isMouseOverRect(width/2, height*0.9, btnWidth, btnHeight)) {
                    gameState = 'start';
                }
            }
@@ -1036,14 +1123,10 @@
                let imgToShow = easterEggActive ? secretBirdImg : birdImg;
                push();
                if (rushMode) {
-                   // Cycling halo behind the duck. The tint is kept pale on
-                   // purpose: tint() multiplies, so a saturated colour over the
-                   // magenta sprite renders it nearly black.
-                   noStroke();
-                   fill(rushColor(90, 90, 100, 90));
-                   ellipse(this.x, this.y, this.size * 1.7);
-                   fill(rushColor(200, 80, 100, 70));
-                   ellipse(this.x, this.y, this.size * 1.25);
+                   // Colour-cycle the duck itself. No halo here: the only ring
+                   // around the duck should be the shield pickup indicator.
+                   // The tint is kept pale on purpose - tint() multiplies, so a
+                   // saturated colour over the magenta sprite renders it black.
                    tint(rushColor(90, 30, 100));
                }
                translate(this.x, this.y);
@@ -1090,12 +1173,11 @@
                this.x = x;
                this.y = y;
                this.size = height * 0.05;
-               this.speed = midnightMode ? width * 0.0065 : width * 0.005;
+               this.speed = modeDifficulty().speed;
                this.angle = 0;
            }
            update() {
                this.x -= this.speed;
-               if (midnightMode) this.speed *= 1.0005;
                this.angle += 0.06;
            }
            show() {
@@ -1179,6 +1261,53 @@
            }
        }
 
+       // Place a laser only where the player can actually survive it.
+       //
+       // A full-width beam is dodged vertically, so it must never cover the
+       // whole of a pipe gap the bird has to be inside while the beam is
+       // firing. We work out which pipes will straddle the bird during the
+       // firing window, then only accept a beam position that leaves a
+       // bird-sized escape slot in every one of those gaps. If no candidate
+       // qualifies, no laser spawns this time.
+       function spawnSafeLaser() {
+           const thickness = height * 0.05;
+           const warnFrames = 55, activeFrames = 45;
+           const margin = bird.size * 0.55;
+           const need = bird.size * 1.3;
+
+           let relevant = [];
+           for (let p of pipes) {
+               let xStart = p.x - p.speed * warnFrames;
+               let xEnd = p.x - p.speed * (warnFrames + activeFrames);
+               // pipe covers the bird's column when p.x is in [bird.x - w, bird.x]
+               if (xEnd <= bird.x && xStart >= bird.x - p.w) relevant.push(p);
+           }
+
+           for (let attempt = 0; attempt < 30; attempt++) {
+               let y = random(height * 0.16, height * 0.84);
+               let bandTop = y - thickness / 2 - margin;
+               let bandBot = y + thickness / 2 + margin;
+
+               // must leave a usable slot between the beam and the screen edges
+               if (max(bandTop, height - bandBot) < need) continue;
+
+               let ok = true;
+               for (let p of relevant) {
+                   let gapTop = p.top;
+                   let gapBot = p.top + p.spacing;
+                   let above = bandTop - gapTop;
+                   let below = gapBot - bandBot;
+                   if (max(above, below) < need) { ok = false; break; }
+               }
+               if (!ok) continue;
+
+               let lb = new LaserBar();
+               lb.y = y;
+               hazards.push(lb);
+               return;
+           }
+       }
+
        // Drifting neon shapes in the RUSH backdrop.
        class RushShape {
            constructor() {
@@ -1235,9 +1364,10 @@
 
        class Pipe {
            constructor(previousPipe) {
-               this.spacing = rushMode ? height * 0.33 : (midnightMode ? height * 0.28 : height * 0.35);
+               let diff = modeDifficulty();
+               this.spacing = diff.spacing;
                this.w = width * 0.1;
-               this.speed = rushMode ? width * 0.0078 : (midnightMode ? width * 0.0065 : width * 0.005);
+               this.speed = diff.speed;
                this.passed = false;
                this.rushHueOffset = random(360);
 
@@ -1352,7 +1482,7 @@
                rect(this.x - 6, height - this.bottom, this.w + 12, 22);
                pop();
            }
-           update() { this.x -= this.speed; if (midnightMode || rushMode) { this.speed *= 1.0005; } }
+           update() { this.x -= this.speed; }
            offscreen() { return this.x < -this.w; }
            hits(bird) { let r = bird.size / 4; if (bird.y - r < this.top || bird.y + r > height - this.bottom) { if (bird.x + r > this.x && bird.x - r < this.x + this.w) { return true; } } return false; }
        }
