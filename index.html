@@ -179,6 +179,8 @@
        let confetti = [];
        let leaderboardDayData = [];
        let leaderboardNightData = [];
+       let bestDayScore = 0;
+       let bestNightScore = 0;
 
        // --- NEW: Easter Egg and Effects variables ---
        let duxTapCount = 0;
@@ -221,6 +223,8 @@
        function setup() {
            const canvas = createCanvas(windowWidth, windowHeight);
            bird = new Bird();
+           bestDayScore = parseInt(localStorage.getItem('duxHighFlyBestDay')) || 0;
+           bestNightScore = parseInt(localStorage.getItem('duxHighFlyBestNight')) || 0;
            for (let i = 0; i < 3; i++) {
                clouds.push(new Cloud(random(width), random(height * 0.05, height * 0.25)));
            }
@@ -252,7 +256,7 @@
                drawLoadingScreen();
                return;
            }
-           if (!midnightMode) drawScenery();
+           if (!midnightMode) drawScenery(); else drawNightScenery();
 
            if (gameState === 'start' || gameState === 'play' || gameState === 'over' || gameState === 'entering_name' || gameState === 'leaderboard') {
                 for (let cloud of clouds) {
@@ -335,6 +339,12 @@
            imageMode(CENTER);
            image(sunImg, width * 0.9, height * 0.15, width * 0.1, width * 0.1);
        }
+
+       function drawNightScenery() {
+           fill(16, 20, 30);
+           noStroke();
+           rect(0, height - 50, width, 50);
+       }
        
        function drawStartScreen() {
            if (titleImg) {
@@ -343,7 +353,14 @@
                let imgHeight = imgWidth * (titleImg.height / titleImg.width);
                image(titleImg, width / 2, height / 4, imgWidth, imgHeight);
            }
-           
+
+           noStroke();
+           fill(255);
+           textFont('Inter');
+           textSize(max(11, height * 0.017));
+           textAlign(CENTER, CENTER);
+           text(`Day Best: ${bestDayScore}    Night Best: ${bestNightScore}`, width / 2, height * 0.58);
+
            let btnWidth = min(width * 0.7, 400);
            let btnHeight = height * 0.08;
            let sBy1 = height * 0.65, sBy2 = height * 0.65 + btnHeight + 20, sBy3 = height * 0.65 + (btnHeight + 20) * 2;
@@ -388,6 +405,12 @@
            displayScore += (score - displayScore) * 0.15;
            if (abs(score - displayScore) < 0.5) displayScore = score;
            text(`Score: ${floor(displayScore)}`, width/2, height * 0.45);
+
+           textSize(height * 0.025);
+           fill(255, 230);
+           let modeBest = midnightMode ? bestNightScore : bestDayScore;
+           text(`Best: ${modeBest}`, width/2, height * 0.51);
+
            let btnWidth = min(width * 0.7, 400);
            let btnHeight = height * 0.08;
            let gBy1 = height * 0.7, gBy2 = height * 0.7 + btnHeight + 20, gBy3 = height * 0.7 + (btnHeight + 20) * 2;
@@ -575,7 +598,7 @@
        }
        
        function playGame() {
-           let interval = midnightMode ? max(30, 90 - floor(score / 10)) : 90;
+           let interval = midnightMode ? max(30, 70 - floor(score / 10)) : 90;
             if (frameCount % interval === 0) {
                let lastPipe = pipes.length > 0 ? pipes[pipes.length - 1] : null;
                pipes.push(new Pipe(lastPipe));
@@ -612,6 +635,18 @@
                impactParticles.push(new ImpactParticle(bird.x, bird.y));
            }
 
+           if (midnightMode) {
+               if (score > bestNightScore) {
+                   bestNightScore = score;
+                   localStorage.setItem('duxHighFlyBestNight', bestNightScore);
+               }
+           } else {
+               if (score > bestDayScore) {
+                   bestDayScore = score;
+                   localStorage.setItem('duxHighFlyBestDay', bestDayScore);
+               }
+           }
+
            if (window.checkHighScore(score, midnightMode)) {
                lastScoreWasHighScore = true;
                gameState = 'entering_name';
@@ -628,7 +663,7 @@
            
            if (gameState === 'start' || gameState === 'over' || gameState === 'leaderboard') {
                if (isMouseOverLink()) {
-                   window.open('https://kutt.it/what_is_dux-soup', '_blank');
+                   window.open('https://www.dux-soup.com/', '_blank');
                    return; 
                }
            }
@@ -745,12 +780,38 @@
        
        class Pipe {
            constructor(previousPipe) {
-               this.spacing = height * 0.35; 
+               this.spacing = midnightMode ? height * 0.28 : height * 0.35;
                this.w = width * 0.1;
-               this.speed = width * 0.005;
+               this.speed = midnightMode ? width * 0.0065 : width * 0.005;
                this.passed = false;
-               this.color1 = color(110, 200, 60);
-               this.color2 = color(70, 150, 40);
+
+               const dayPalettes = [
+                   [color(110, 200, 60), color(70, 150, 40)],
+                   [color(130, 195, 65), color(85, 145, 45)],
+                   [color(95, 185, 95), color(55, 135, 65)]
+               ];
+               const nightPalettes = [
+                   [color(58, 72, 92), color(30, 38, 52)],
+                   [color(68, 60, 88), color(36, 30, 50)],
+                   [color(52, 76, 78), color(26, 42, 44)]
+               ];
+               const palette = random(midnightMode ? nightPalettes : dayPalettes);
+               this.color1 = palette[0];
+               this.color2 = palette[1];
+               this.highlight = lerpColor(this.color1, color(255, 255, 255), 0.3);
+               this.speckleColor = lerpColor(this.color2, color(0, 0, 0), 0.25);
+
+               this.speckles = [];
+               let speckleCount = floor(random(3, 6));
+               for (let s = 0; s < speckleCount; s++) {
+                   this.speckles.push({
+                       x: random(this.w * 0.15, this.w * 0.85),
+                       onTop: random() < 0.5,
+                       t: random(),
+                       size: random(3, 7)
+                   });
+               }
+
                this.x = width;
 
                let safeMargin = height * 0.15;
@@ -780,7 +841,39 @@
                this.bottom = height - (this.top + this.spacing);
            }
            
-           show() { noStroke(); for(let i = 0; i < this.w; i++){ let inter = map(i, 0, this.w, 0, 1); let c = lerpColor(this.color1, this.color2, inter); fill(c); rect(this.x + i, 0, 1, this.top); rect(this.x + i, height - this.bottom, 1, this.bottom); } fill(this.color2); rect(this.x - 5, this.top - 25, this.w + 10, 25); rect(this.x - 5, height - this.bottom, this.w + 10, 25); }
+           show() {
+               noStroke();
+               fill(this.color1);
+               rect(this.x, 0, this.w, this.top);
+               rect(this.x, height - this.bottom, this.w, this.bottom);
+
+               let shadowW = this.w * 0.32;
+               fill(this.color2);
+               rect(this.x + this.w - shadowW, 0, shadowW, this.top);
+               rect(this.x + this.w - shadowW, height - this.bottom, shadowW, this.bottom);
+
+               let hlW = this.w * 0.14;
+               fill(this.highlight);
+               rect(this.x + this.w * 0.12, 0, hlW, this.top);
+               rect(this.x + this.w * 0.12, height - this.bottom, hlW, this.bottom);
+
+               fill(this.speckleColor);
+               for (const sp of this.speckles) {
+                   let segY = sp.onTop ? sp.t * this.top : (height - this.bottom) + sp.t * this.bottom;
+                   ellipse(this.x + sp.x, segY, sp.size);
+               }
+
+               if (midnightMode) {
+                   fill(255, 255, 255, 28);
+                   let sheenW = this.w * 0.08;
+                   rect(this.x + this.w * 0.55, 0, sheenW, this.top);
+                   rect(this.x + this.w * 0.55, height - this.bottom, sheenW, this.bottom);
+               }
+
+               fill(this.color2);
+               rect(this.x - 5, this.top - 25, this.w + 10, 25);
+               rect(this.x - 5, height - this.bottom, this.w + 10, 25);
+           }
            update() { this.x -= this.speed; if (midnightMode) { this.speed *= 1.0005; } }
            offscreen() { return this.x < -this.w; }
            hits(bird) { let r = bird.size / 4; if (bird.y - r < this.top || bird.y + r > height - this.bottom) { if (bird.x + r > this.x && bird.x - r < this.x + this.w) { return true; } } return false; }
