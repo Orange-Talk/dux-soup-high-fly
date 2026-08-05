@@ -244,7 +244,7 @@
 
 <script>
        // Your p5.js game code
-       const DEPLOY_VERSION = '1.11.0';
+       const DEPLOY_VERSION = '1.12.0';
        let bird;
        let birdImg, secretBirdImg, titleImg, sunImg, moonImg;
        let dayCloudImgs = [], nightCloudImgs = [];
@@ -663,7 +663,18 @@
        }
 
        function drawMenuBackground() {
-           if (!menuBufA || !menuBufB) { background(135, 206, 235); return; }
+           if (!menuBufA || !menuBufB || width <= 0 || height <= 0) {
+               background(135, 206, 235);
+               return;
+           }
+           // Re-sync the buffers if they ever drift from the canvas. A page
+           // that loads with a zero-size viewport (hidden tab, mid-rotation)
+           // would otherwise create 0x0 buffers and throw on every drawImage,
+           // with no way to recover once the window got its real size.
+           if (menuBufA.width !== width || menuBufA.height !== height) {
+               menuBufA.resizeCanvas(width, height);
+               menuBufB.resizeCanvas(width, height);
+           }
            let idx = floor(frameCount / MENU_HOLD) % MENU_THEMES.length;
            let within = frameCount % MENU_HOLD;
            let fade = within > MENU_HOLD - MENU_FADE
