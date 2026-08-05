@@ -181,7 +181,7 @@
 
 <script>
        // Your p5.js game code
-       const DEPLOY_VERSION = '1.8.0';
+       const DEPLOY_VERSION = '1.9.0';
        let bird;
        let birdImg, secretBirdImg, titleImg, sunImg, moonImg;
        let dayCloudImgs = [], nightCloudImgs = [];
@@ -213,6 +213,9 @@
        let gameOverAlpha = 0;
        let displayScore = 0;
        let lastScoreWasHighScore = false;
+       // Brief input freeze after dying, so the tap that killed you (or panic
+       // tapping) can't immediately trigger "Fly Again".
+       let overInputLock = 0;
 
        // --- Shield power-up state ---
        let powerUp = null;
@@ -254,7 +257,7 @@
        
        function preload() {
            birdImg = loadImage("https://i.imgur.com/3erQEDH.png");
-           secretBirdImg = loadImage("assets/secret-bird-neon.png");
+           secretBirdImg = loadImage("assets/dux-magenta.png");
            titleImg = loadImage("https://i.imgur.com/kf0McQi.png");
            sunImg = loadImage("https://i.imgur.com/y9Clgrb.png");
            moonImg = loadImage("https://i.imgur.com/6h9c1qN.png");
@@ -370,7 +373,7 @@
                bird.show();
                playGame();
                bird.update();
-               if (starMode) {
+               if (rushMode || starMode) {
                    neonTrail.push(new NeonSparkle(bird.x - bird.size * 0.35, bird.y));
                }
                for (let i = neonTrail.length - 1; i >= 0; i--) {
@@ -685,6 +688,7 @@
        }
        
        function drawGameOverScreen() {
+           if (overInputLock > 0) overInputLock--;
            gameOverAlpha = min(gameOverAlpha + 12, 150);
            fill(0, 0, 0, gameOverAlpha);
            rect(0, 0, width, height);
@@ -724,6 +728,9 @@
            let modeBest = rushMode ? bestRushScore : (midnightMode ? bestNightScore : bestDayScore);
            text(`Best: ${modeBest}`, width/2, height * 0.51);
 
+           let medal = medalFor(score, currentMode());
+           if (medal) drawMedal(medal, width / 2, height * 0.575, height * 0.030);
+
            let btnWidth = min(width * 0.7, 400);
            let btnHeight = height * 0.08;
            let gBy1 = height * 0.7, gBy2 = height * 0.7 + btnHeight + 20, gBy3 = height * 0.7 + (btnHeight + 20) * 2;
@@ -744,6 +751,43 @@
            drawDuxLink();
        }
        
+       // Medals give a run something to aim at between "died early" and
+       // "made the leaderboard". RUSH thresholds are higher because it pays
+       // double per pipe.
+       function medalFor(s, mode) {
+           const tiers = mode === 'rush'
+               ? [[2500, 'PLATINUM', [226, 232, 240], [148, 163, 184]],
+                  [1200, 'GOLD',     [255, 215, 60],  [186, 148, 20]],
+                  [600,  'SILVER',   [226, 226, 232], [150, 150, 165]],
+                  [300,  'BRONZE',   [214, 148, 84],  [148, 96, 48]]]
+               : [[2000, 'PLATINUM', [226, 232, 240], [148, 163, 184]],
+                  [1000, 'GOLD',     [255, 215, 60],  [186, 148, 20]],
+                  [500,  'SILVER',   [226, 226, 232], [150, 150, 165]],
+                  [250,  'BRONZE',   [214, 148, 84],  [148, 96, 48]]];
+           for (const [min, name, c1, c2] of tiers) {
+               if (s >= min) return { name, c1, c2 };
+           }
+           return null;
+       }
+
+       function drawMedal(m, x, y, r) {
+           push();
+           noStroke();
+           fill(m.c2[0], m.c2[1], m.c2[2]);
+           ellipse(x, y, r * 2.15);
+           fill(m.c1[0], m.c1[1], m.c1[2]);
+           ellipse(x, y, r * 1.75);
+           fill(255, 255, 255, 90);
+           drawStar(x, y, r * 0.3, r * 0.68, 5);
+           noStroke();
+           fill(m.c1[0], m.c1[1], m.c1[2]);
+           textFont('Press Start 2P');
+           textAlign(CENTER, CENTER);
+           textSize(max(9, r * 0.42));
+           text(m.name, x, y + r * 1.65);
+           pop();
+       }
+
        function drawLeaderboardColumn(data, startIdx, count, xName, xScore, yStart, entrySize, lineGap) {
            textSize(entrySize);
            fill(255);
@@ -1077,6 +1121,7 @@
            shakeAmount = 8;
            gameOverAlpha = 0;
            displayScore = 0;
+           overInputLock = 28;
            for (let i = 0; i < 24; i++) {
                impactParticles.push(new ImpactParticle(bird.x, bird.y));
            }
@@ -1136,10 +1181,35 @@
        }
 
        function keyPressed() {
-           if (key === ' ') {
-               if (gameState === 'play') {
-                   bird.up();
-               }
+           if (gameState === 'entering_name') return;
+
+           const flap = (key === ' ' || keyCode === UP_ARROW || key === 'w' || key === 'W');
+           const confirm = (key === ' ' || keyCode === ENTER);
+
+           if (gameState === 'play') {
+               if (flap) { bird.up(); return false; }
+               return;
+           }
+           // Keyboard parity with the mouse: start, retry and back-out without
+           // having to reach for the pointer.
+           if (gameState === 'start' && confirm) {
+               midnightMode = false; rushMode = false;
+               startGame();
+               return false;
+           }
+           if (gameState === 'over' && confirm) {
+               if (overInputLock > 0) return false;
+               startGame();
+               return false;
+           }
+           if (gameState === 'leaderboard' && (confirm || keyCode === ESCAPE)) {
+               gameState = 'start';
+               return false;
+           }
+           if (gameState === 'over' && keyCode === ESCAPE) {
+               rushMode = false;
+               gameState = 'start';
+               return false;
            }
        }
 
@@ -1177,6 +1247,7 @@
                    startGame();
                }
            } else if (gameState === 'over') {
+               if (overInputLock > 0) return;
                btnWidth = min(width * 0.7, 400);
                btnHeight = height * 0.08;
                let step = btnHeight + 20;
