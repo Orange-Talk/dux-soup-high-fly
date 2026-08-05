@@ -181,7 +181,7 @@
 
 <script>
        // Your p5.js game code
-       const DEPLOY_VERSION = '1.7.0';
+       const DEPLOY_VERSION = '1.8.0';
        let bird;
        let birdImg, secretBirdImg, titleImg, sunImg, moonImg;
        let dayCloudImgs = [], nightCloudImgs = [];
@@ -202,7 +202,9 @@
 
        // --- NEW: Easter Egg and Effects variables ---
        let duxTapCount = 0;
-       let easterEggActive = false;
+       // Tapping the menu duck 5x toggles "star mode": a rapid rainbow strobe
+       // on top of whichever duck the current mode uses.
+       let starMode = false;
        let shakeDuration = 0;
        let shakeAmount = 0;
        let scorePopups = [];
@@ -219,13 +221,20 @@
        let shieldFlashTimer = 0;
        let shieldParticles = [];
 
-       // --- RUSH mode (unlocked via the easter egg) ---
-       let rushUnlocked = false;
+       // --- RUSH mode ---
        let rushMode = false;
        let rushHue = 0;
        let hazards = [];
        let rushShapes = [];
        let bestRushScore = 0;
+
+       // Menu backdrop cycles day -> midnight -> rush. Themes are rendered
+       // into offscreen buffers so one can crossfade over the other.
+       const MENU_THEMES = ['day', 'night', 'rush'];
+       const MENU_HOLD = 300;
+       const MENU_FADE = 70;
+       let menuBufA = null, menuBufB = null;
+       let starBuf = null;
 
        window.p5 = this;
        
@@ -257,6 +266,9 @@
        
        function setup() {
            const canvas = createCanvas(windowWidth, windowHeight);
+           menuBufA = createGraphics(windowWidth, windowHeight);
+           menuBufB = createGraphics(windowWidth, windowHeight);
+           starBuf = createGraphics(256, 256);
            bird = new Bird();
            bestDayScore = parseInt(localStorage.getItem('duxHighFlyBestDay')) || 0;
            bestNightScore = parseInt(localStorage.getItem('duxHighFlyBestNight')) || 0;
@@ -268,6 +280,8 @@
        
        function windowResized() {
            resizeCanvas(windowWidth, windowHeight);
+           if (menuBufA) menuBufA.resizeCanvas(windowWidth, windowHeight);
+           if (menuBufB) menuBufB.resizeCanvas(windowWidth, windowHeight);
            if (bird) {
                 bird.baseY = height / 2;
                 bird.reset();
@@ -280,10 +294,13 @@
                shakeDuration--;
            }
 
-           if (rushMode) {
+           if (gameState === 'start') {
+               // Menu shows its own cycling backdrop rather than any one mode.
+               drawMenuBackground();
+           } else if (rushMode) {
                drawRushBackground();
            } else if (midnightMode) {
-                background(15, 23, 42);
+                background(8, 12, 24);
                 imageMode(CENTER);
                 image(moonImg, width * 0.9, height * 0.15, width * 0.1, width * 0.1);
            } else {
@@ -294,15 +311,17 @@
                drawLoadingScreen();
                return;
            }
-           if (rushMode) {
-               drawRushScenery();
-           } else if (!midnightMode) {
-               drawScenery();
-           } else {
-               drawNightScenery();
+           if (gameState !== 'start') {
+               if (rushMode) {
+                   drawRushScenery();
+               } else if (!midnightMode) {
+                   drawScenery();
+               } else {
+                   drawNightScenery();
+               }
            }
 
-           if (!rushMode && (gameState === 'start' || gameState === 'play' || gameState === 'over' || gameState === 'entering_name' || gameState === 'leaderboard')) {
+           if (gameState !== 'start' && !rushMode && (gameState === 'play' || gameState === 'over' || gameState === 'entering_name' || gameState === 'leaderboard')) {
                 for (let cloud of clouds) {
                     cloud.show();
                     if(gameState === 'play') cloud.update();
@@ -320,17 +339,20 @@
                drawStartScreen();
            } else if (gameState === 'play') {
                if (midnightMode) {
-                   if (random() < 0.01 && flashTimer <= 0) flashTimer = 3;
-                   if (flashTimer > 0) { 
+                   // Lightning is deliberately infrequent: a full-screen flash
+                   // firing about once a second is unpleasant and a
+                   // photosensitivity risk, so it stays an occasional beat.
+                   if (random() < 0.005 && flashTimer <= 0) flashTimer = 3;
+                   if (flashTimer > 0) {
                        push();
-                       fill(200, 200, 255, 150);
+                       fill(200, 208, 255, 120);
                        noStroke();
                        rectMode(CORNER);
                        rect(0, 0, width, height);
                        pop();
-                       flashTimer--; 
+                       flashTimer--;
                    }
-                   for (let i = 0; i < 3; i++) { rain.push(new Rain(random(width), random(-100, 0))); }
+                   for (let i = 0; i < 6; i++) { rain.push(new Rain(random(width * 1.1), random(-100, 0))); }
                    for (let i = rain.length - 1; i >= 0; i--) { rain[i].fall(); rain[i].show(); if (rain[i].offscreen()) rain.splice(i, 1); }
                }
                if (shieldFlashTimer > 0) {
@@ -348,7 +370,7 @@
                bird.show();
                playGame();
                bird.update();
-               if (easterEggActive) {
+               if (starMode) {
                    neonTrail.push(new NeonSparkle(bird.x - bird.size * 0.35, bird.y));
                }
                for (let i = neonTrail.length - 1; i >= 0; i--) {
@@ -410,7 +432,7 @@
        }
 
        function drawNightScenery() {
-           fill(16, 20, 30);
+           fill(10, 12, 20);
            noStroke();
            rect(0, height - 50, width, 50);
        }
@@ -480,6 +502,119 @@
            return rushMode ? 'rush' : (midnightMode ? 'night' : 'day');
        }
 
+       // Deterministic pseudo-random in [0,1) so menu decor keeps its position
+       // between frames without needing stored state.
+       function hash01(n) {
+           let v = sin(n * 127.1) * 43758.5453;
+           return abs(v - floor(v));
+       }
+
+       function drawThemeTo(g, theme) {
+           const W = g.width, H = g.height;
+           g.push();
+           g.noStroke();
+
+           if (theme === 'day') {
+               g.background(135, 206, 235);
+               g.imageMode(CENTER);
+               if (sunImg) g.image(sunImg, W * 0.86, H * 0.16, W * 0.085, W * 0.085);
+               g.imageMode(CORNER);
+               if (dayCloudImgs.length) {
+                   let img = dayCloudImgs[0];
+                   for (let i = 0; i < 4; i++) {
+                       let cw = W * (0.11 + 0.03 * hash01(i + 1));
+                       let span = W + cw * 2;
+                       let x = W + cw - ((frameCount * 0.3 + i * span / 4) % span);
+                       let y = H * (0.06 + 0.07 * i);
+                       g.image(img, x, y, cw, cw * (img.height / img.width));
+                   }
+               }
+               g.fill(34, 139, 34);
+               g.rect(0, H - 50, W, 50);
+
+           } else if (theme === 'night') {
+               g.background(8, 12, 24);
+               g.imageMode(CENTER);
+               if (moonImg) g.image(moonImg, W * 0.86, H * 0.16, W * 0.085, W * 0.085);
+               g.imageMode(CORNER);
+               if (nightCloudImgs.length) {
+                   for (let i = 0; i < 4; i++) {
+                       let img = nightCloudImgs[i % nightCloudImgs.length];
+                       let cw = W * (0.12 + 0.04 * hash01(i + 7));
+                       let span = W + cw * 2;
+                       let x = W + cw - ((frameCount * 0.45 + i * span / 4) % span);
+                       let y = H * (0.05 + 0.07 * i);
+                       g.image(img, x, y, cw, cw * (img.height / img.width));
+                   }
+               }
+               g.stroke(190, 200, 255, 130);
+               g.strokeWeight(2);
+               for (let i = 0; i < 70; i++) {
+                   let x = (hash01(i + 21) * W + frameCount * 6) % W;
+                   let y = (hash01(i + 55) * H + frameCount * 15) % H;
+                   g.line(x, y, x + 4, y + 16);
+               }
+               g.noStroke();
+               g.fill(10, 12, 20);
+               g.rect(0, H - 50, W, 50);
+
+           } else {
+               g.colorMode(HSB, 360, 100, 100, 255);
+               let bands = 24, bandH = H / bands;
+               for (let i = 0; i < bands; i++) {
+                   let t = i / (bands - 1);
+                   g.fill(rushHueAt(frameCount * 1.1 + t * 70), 92, lerp(16, 40, t));
+                   g.rect(0, i * bandH - 1, W, bandH + 2);
+               }
+               g.noFill();
+               g.strokeWeight(2);
+               for (let i = 0; i < 12; i++) {
+                   let size = H * (0.03 + 0.07 * hash01(i + 3));
+                   let span = W + size * 2;
+                   let x = W + size - ((frameCount * (0.5 + hash01(i + 9) * 1.6) + i * span / 12) % span);
+                   let y = H * (0.06 + 0.8 * hash01(i + 31));
+                   g.stroke(rushHueAt(frameCount * 1.1 + hash01(i + 5) * 360), 80, 100, 110);
+                   g.push();
+                   g.translate(x, y);
+                   g.rotate(frameCount * 0.01 + i);
+                   let kind = floor(hash01(i + 13) * 3);
+                   if (kind === 0) g.ellipse(0, 0, size);
+                   else if (kind === 1) g.triangle(0, -size / 2, size / 2, size / 2, -size / 2, size / 2);
+                   else { g.rectMode(CENTER); g.rect(0, 0, size, size, 4); }
+                   g.pop();
+               }
+               g.noStroke();
+               g.fill(rushHueAt(frameCount * 1.1 + 180), 90, 60);
+               g.rect(0, H - 40, W, 40);
+               g.fill(rushHueAt(frameCount * 1.1 + 180), 80, 100, 200);
+               g.rect(0, H - 44, W, 4);
+               g.colorMode(RGB, 255);
+           }
+           g.pop();
+       }
+
+       function drawMenuBackground() {
+           if (!menuBufA || !menuBufB) { background(135, 206, 235); return; }
+           let idx = floor(frameCount / MENU_HOLD) % MENU_THEMES.length;
+           let within = frameCount % MENU_HOLD;
+           let fade = within > MENU_HOLD - MENU_FADE
+               ? (within - (MENU_HOLD - MENU_FADE)) / MENU_FADE
+               : 0;
+
+           drawThemeTo(menuBufA, MENU_THEMES[idx]);
+           imageMode(CORNER);
+           image(menuBufA, 0, 0);
+
+           if (fade > 0) {
+               drawThemeTo(menuBufB, MENU_THEMES[(idx + 1) % MENU_THEMES.length]);
+               push();
+               tint(255, fade * 255);
+               image(menuBufB, 0, 0);
+               pop();
+               noTint();
+           }
+       }
+
        // Difficulty ramps with score instead of being fixed, so every mode
        // opens forgiving and tightens as a run goes on. `ramp` is the score at
        // which a mode reaches its hardest settings.
@@ -505,13 +640,9 @@
        // shrink and the stack is anchored to the bottom to stay on screen.
        function startMenuLayout() {
            let btnWidth = min(width * 0.7, 400);
-           if (rushUnlocked) {
-               let btnHeight = height * 0.068;
-               let step = btnHeight + 14;
-               return { btnWidth, btnHeight, step, count: 4, base: height * 0.94 - btnHeight / 2 - step * 3 };
-           }
-           let btnHeight = height * 0.08;
-           return { btnWidth, btnHeight, step: btnHeight + 20, count: 3, base: height * 0.65 };
+           let btnHeight = height * 0.068;
+           let step = btnHeight + 14;
+           return { btnWidth, btnHeight, step, count: 4, base: height * 0.94 - btnHeight / 2 - step * 3 };
        }
        
        function drawStartScreen() {
@@ -528,8 +659,7 @@
            textSize(max(11, height * 0.017));
            textAlign(CENTER, CENTER);
            let L = startMenuLayout();
-           let bestLine = `Day Best: ${bestDayScore}    Night Best: ${bestNightScore}`;
-           if (rushUnlocked) bestLine += `    Rush Best: ${bestRushScore}`;
+           let bestLine = `Day Best: ${bestDayScore}    Night Best: ${bestNightScore}    Rush Best: ${bestRushScore}`;
            text(bestLine, width / 2, L.base - L.btnHeight / 2 - height * 0.035);
 
            let btnWidth = L.btnWidth;
@@ -541,10 +671,8 @@
            drawButton("Midnight Flight", width / 2, sBy2, btnWidth, btnHeight, isMouseOverRect(width / 2, sBy2, btnWidth, btnHeight));
            drawButton("Leaderboard", width / 2, sBy3, btnWidth, btnHeight, isMouseOverRect(width / 2, sBy3, btnWidth, btnHeight));
 
-           if (rushUnlocked) {
-               let sBy4 = base + step * 3;
-               drawRushButton("⚡ RUSH ⚡", width / 2, sBy4, btnWidth, btnHeight, isMouseOverRect(width / 2, sBy4, btnWidth, btnHeight));
-           }
+           let sBy4 = base + step * 3;
+           drawRushButton("⚡ RUSH ⚡", width / 2, sBy4, btnWidth, btnHeight, isMouseOverRect(width / 2, sBy4, btnWidth, btnHeight));
 
            drawDuxLink();
            
@@ -732,7 +860,7 @@
        function getPortraitLinkY() {
            if (gameState === 'start') {
                let L = startMenuLayout();
-               return L.base + L.step * (L.count - 1) + L.btnHeight / 2 + 24;
+               return L.base + L.step * (L.count - 1) + L.btnHeight / 2 + 22;
            }
            let btnHeight = height * 0.08;
            let step = btnHeight + 20;
@@ -996,9 +1124,8 @@
                if (d < bird.size / 2) {
                    duxTapCount++;
                    if (duxTapCount === 5) {
-                       easterEggActive = true;
-                       rushUnlocked = true;
-                       launchConfetti(width / 2, height / 2, 200);
+                       starMode = !starMode;
+                       if (starMode) launchConfetti(width / 2, height / 2, 200);
                        duxTapCount = 0;
                    }
                }
@@ -1044,7 +1171,7 @@
                if (isMouseOverRect(width/2, base + step * 2, btnWidth, btnHeight)) {
                    gameState = 'leaderboard';
                }
-               if (rushUnlocked && isMouseOverRect(width/2, base + step * 3, btnWidth, btnHeight)) {
+               if (isMouseOverRect(width/2, base + step * 3, btnWidth, btnHeight)) {
                    midnightMode = false;
                    rushMode = true;
                    startGame();
@@ -1114,21 +1241,44 @@
            }
        }
        
+       // Recolour a sprite's opaque pixels to a single cycling hue.
+       //
+       // tint() can't do this: it multiplies, so tinting the blue/yellow duck
+       // red yields near-black rather than a red duck. Instead we stamp the
+       // sprite into a scratch buffer and use a 'source-in' composite to paint
+       // solid colour through its alpha mask, giving a true silhouette recolour.
+       function starSilhouette(img) {
+           if (!starBuf || !img) return null;
+           starBuf.clear();
+           starBuf.push();
+           starBuf.imageMode(CORNER);
+           starBuf.image(img, 0, 0, starBuf.width, starBuf.height);
+           starBuf.drawingContext.globalCompositeOperation = 'source-in';
+           starBuf.colorMode(HSB, 360, 100, 100, 255);
+           starBuf.noStroke();
+           starBuf.fill((frameCount * 26) % 360, 92, 100);
+           starBuf.rect(0, 0, starBuf.width, starBuf.height);
+           starBuf.drawingContext.globalCompositeOperation = 'source-over';
+           starBuf.pop();
+           return starBuf;
+       }
+
+       // Day flies the original duck; Midnight and RUSH fly the magenta one.
+       // The menu always shows the default so the 5-tap star toggle reads
+       // against a known baseline.
+       function birdSpriteForMode() {
+           if (gameState === 'start') return birdImg;
+           return (rushMode || midnightMode) ? secretBirdImg : birdImg;
+       }
+
        class Bird {
            constructor() { this.size = height * 0.08; this.reset(); }
            reset() { this.size = height * 0.08; this.x = width / 4; this.y = height / 2; this.gravity = 0.0005 * height; this.lift = -0.012 * height; this.velocity = 0; this.baseY = height / 2; }
            update() { this.velocity += this.gravity; this.velocity *= 0.98; this.y += this.velocity; }
            hover() { this.x = width / 2; this.y = this.baseY + sin(frameCount * 0.05) * 10; this.velocity = 0; }
            show() {
-               let imgToShow = easterEggActive ? secretBirdImg : birdImg;
+               let imgToShow = birdSpriteForMode();
                push();
-               if (rushMode) {
-                   // Colour-cycle the duck itself. No halo here: the only ring
-                   // around the duck should be the shield pickup indicator.
-                   // The tint is kept pale on purpose - tint() multiplies, so a
-                   // saturated colour over the magenta sprite renders it black.
-                   tint(rushColor(90, 30, 100));
-               }
                translate(this.x, this.y);
                let angle = map(this.velocity, -10, 15, -PI / 4, PI / 4);
                if (gameState !== 'play') angle = 0;
@@ -1138,7 +1288,15 @@
                    let squashY = map(constrain(this.velocity, -10, 15), -10, 15, 0.82, 1.15);
                    scale(2 - squashY, squashY);
                }
-               image(imgToShow, 0, 0, this.size, this.size);
+
+               if (starMode) {
+                   // Mario-style invincibility strobe: flash between the duck's
+                   // own colours and a solid rainbow recolour of its shape.
+                   let sil = (frameCount % 8 < 5) ? starSilhouette(imgToShow) : null;
+                   image(sil || imgToShow, 0, 0, this.size, this.size);
+               } else {
+                   image(imgToShow, 0, 0, this.size, this.size);
+               }
                pop();
 
                if (gameState === 'play' && hasShield) {
@@ -1521,10 +1679,10 @@
        }
        
        class Rain {
-           constructor(x, y) { this.x = x; this.y = y; this.len = random(10, 20); this.speed = random(6, 12); }
-           fall() { this.y += this.speed; }
-           show() { stroke(200, 200, 255, 150); strokeWeight(2); line(this.x, this.y, this.x, this.y + this.len); }
-           offscreen() { return this.y > height; }
+           constructor(x, y) { this.x = x; this.y = y; this.len = random(14, 26); this.speed = random(9, 17); this.slant = random(2.5, 5); }
+           fall() { this.y += this.speed; this.x -= this.slant; }
+           show() { stroke(195, 205, 255, 165); strokeWeight(2); line(this.x, this.y, this.x - this.slant * 1.6, this.y + this.len); }
+           offscreen() { return this.y > height || this.x < -30; }
        }
        
        class Confetti {
