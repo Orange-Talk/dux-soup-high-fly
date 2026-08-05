@@ -84,7 +84,7 @@
            const isNightMode = newHighScore.isNightMode;
            const relevantLeaderboard = isNightMode ? localLeaderboardNight : localLeaderboardDay;
            const relevantRef = isNightMode ? leaderboardNightRef : leaderboardDayRef;
-           const updatedScores = [...relevantLeaderboard, newHighScore].sort((a, b) => b.score - a.score).slice(0, 10);
+           const updatedScores = [...relevantLeaderboard, newHighScore].sort((a, b) => b.score - a.score).slice(0, 20);
            try {
                await setDoc(relevantRef, { scores: updatedScores });
            } catch (error) {
@@ -105,7 +105,7 @@
            if (score === 0) return false;
            const relevantLeaderboard = isNightMode ? localLeaderboardNight : localLeaderboardDay;
            const lowestScore = relevantLeaderboard.length > 0 ? relevantLeaderboard[relevantLeaderboard.length - 1].score : 0;
-           if (score > lowestScore || relevantLeaderboard.length < 10) {
+           if (score > lowestScore || relevantLeaderboard.length < 20) {
                newHighScore = { score, isNightMode };
                nameModal.classList.remove('hidden');
                nameModal.classList.add('flex');
@@ -185,6 +185,11 @@
        let easterEggActive = false;
        let shakeDuration = 0;
        let shakeAmount = 0;
+       let scorePopups = [];
+       let impactParticles = [];
+       let gameOverAlpha = 0;
+       let displayScore = 0;
+       let lastScoreWasHighScore = false;
 
        window.p5 = this;
        
@@ -284,6 +289,11 @@
                bird.show();
                playGame();
                bird.update();
+               for (let i = scorePopups.length - 1; i >= 0; i--) {
+                   scorePopups[i].update();
+                   scorePopups[i].show();
+                   if (scorePopups[i].offscreen()) scorePopups.splice(i, 1);
+               }
                fill(255);
                stroke(0);
                strokeWeight(4);
@@ -296,6 +306,11 @@
                if (midnightMode) { for (let i = rain.length - 1; i >= 0; i--) { rain[i].show(); } }
                for (let p of pipes) { p.show(); }
                bird.show();
+               for (let i = impactParticles.length - 1; i >= 0; i--) {
+                   impactParticles[i].update();
+                   impactParticles[i].show();
+                   if (impactParticles[i].offscreen()) impactParticles.splice(i, 1);
+               }
                if (gameState === 'over') {
                    drawGameOverScreen();
                }
@@ -331,10 +346,11 @@
            
            let btnWidth = min(width * 0.7, 400);
            let btnHeight = height * 0.08;
-           drawButton("Start Flying", width / 2, height * 0.65, btnWidth, btnHeight);
-           drawButton("Midnight Flight", width / 2, height * 0.65 + btnHeight + 20, btnWidth, btnHeight);
-           drawButton("Leaderboard", width / 2, height * 0.65 + (btnHeight + 20) * 2, btnWidth, btnHeight);
-           
+           let sBy1 = height * 0.65, sBy2 = height * 0.65 + btnHeight + 20, sBy3 = height * 0.65 + (btnHeight + 20) * 2;
+           drawButton("Start Flying", width / 2, sBy1, btnWidth, btnHeight, isMouseOverRect(width / 2, sBy1, btnWidth, btnHeight));
+           drawButton("Midnight Flight", width / 2, sBy2, btnWidth, btnHeight, isMouseOverRect(width / 2, sBy2, btnWidth, btnHeight));
+           drawButton("Leaderboard", width / 2, sBy3, btnWidth, btnHeight, isMouseOverRect(width / 2, sBy3, btnWidth, btnHeight));
+
            drawDuxLink();
            
            noStroke();
@@ -346,7 +362,8 @@
        }
        
        function drawGameOverScreen() {
-           fill(0, 0, 0, 150);
+           gameOverAlpha = min(gameOverAlpha + 12, 150);
+           fill(0, 0, 0, gameOverAlpha);
            rect(0, 0, width, height);
            textFont('Press Start 2P');
            textAlign(CENTER, CENTER);
@@ -357,92 +374,97 @@
            strokeWeight(2);
            text('Game Over', width/2, height * 0.3);
            noStroke();
+
+           if (lastScoreWasHighScore) {
+               let pulse = 200 + sin(frameCount * 0.15) * 55;
+               fill(255, pulse, 0);
+               textSize(height * 0.03);
+               text('NEW HIGH SCORE!', width / 2, height * 0.38);
+           }
+
            fill(255);
            let scoreSize = height * 0.05;
            textSize(scoreSize);
-           text(`Score: ${score}`, width/2, height * 0.45);
+           displayScore += (score - displayScore) * 0.15;
+           if (abs(score - displayScore) < 0.5) displayScore = score;
+           text(`Score: ${floor(displayScore)}`, width/2, height * 0.45);
            let btnWidth = min(width * 0.7, 400);
            let btnHeight = height * 0.08;
-           drawButton("Fly Again", width / 2, height * 0.7, btnWidth, btnHeight);
+           let gBy1 = height * 0.7, gBy2 = height * 0.7 + btnHeight + 20, gBy3 = height * 0.7 + (btnHeight + 20) * 2;
+           drawButton("Fly Again", width / 2, gBy1, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy1, btnWidth, btnHeight));
            if (midnightMode) {
-               drawButton("Day Flight", width / 2, height * 0.7 + btnHeight + 20, btnWidth, btnHeight);
+               drawButton("Day Flight", width / 2, gBy2, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy2, btnWidth, btnHeight));
            } else {
-               drawButton("Midnight Flight", width / 2, height * 0.7 + btnHeight + 20, btnWidth, btnHeight);
+               drawButton("Midnight Flight", width / 2, gBy2, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy2, btnWidth, btnHeight));
            }
-           drawButton("Leaderboard", width / 2, height * 0.7 + (btnHeight + 20) * 2, btnWidth, btnHeight);
-           
+           drawButton("Leaderboard", width / 2, gBy3, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy3, btnWidth, btnHeight));
+
            drawDuxLink();
        }
        
+       function drawLeaderboardColumn(data, startIdx, count, xName, xScore, yStart, entrySize, lineGap) {
+           textSize(entrySize);
+           fill(255);
+           for (let i = 0; i < count; i++) {
+               let idx = startIdx + i;
+               if (idx >= data.length) break;
+               let y = yStart + i * (entrySize + lineGap);
+               textAlign(LEFT, CENTER);
+               text(`${idx + 1}. ${data[idx].name}`, xName, y);
+               textAlign(RIGHT, CENTER);
+               text(data[idx].score, xScore, y);
+           }
+       }
+
        function drawLeaderboardScreen() {
            fill(0, 0, 0, 150);
            rect(0, 0, width, height);
            textFont('Press Start 2P');
            textAlign(CENTER, CENTER);
-           
-           const useVerticalLayout = width < 640; 
-           
+
+           const useVerticalLayout = width < 640;
+
            if (useVerticalLayout) {
-               let leadSize = height * 0.022;
-               textSize(leadSize);
-               fill(255, 215, 0);
-               
-               text('--- DAY FLIGHT ---', width / 2, height * 0.1);
-               let entrySize = height * 0.018;
-               textSize(entrySize);
-               fill(255);
-               for(let i = 0; i < leaderboardDayData.length; i++) {
-                   let y = height * 0.15 + i * (entrySize + 10);
-                   textAlign(LEFT, CENTER);
-                   text(`${i+1}. ${leaderboardDayData[i].name}`, width * 0.15, y);
-                   textAlign(RIGHT, CENTER);
-                   text(leaderboardDayData[i].score, width * 0.85, y);
-               }
+               let leadSize = height * 0.02;
+               let entrySize = height * 0.014;
+               let lineGap = height * 0.006;
 
                textSize(leadSize);
                fill(255, 215, 0);
-               text('--- MIDNIGHT FLIGHT ---', width / 2, height * 0.5);
-               textSize(entrySize);
-               fill(255);
-               for(let i = 0; i < leaderboardNightData.length; i++) {
-                   let y = height * 0.55 + i * (entrySize + 10);
-                   textAlign(LEFT, CENTER);
-                   text(`${i+1}. ${leaderboardNightData[i].name}`, width * 0.15, y);
-                   textAlign(RIGHT, CENTER);
-                   text(leaderboardNightData[i].score, width * 0.85, y);
-               }
+               text('--- DAY FLIGHT ---', width / 2, height * 0.08);
+               let dayY = height * 0.12;
+               drawLeaderboardColumn(leaderboardDayData, 0, 10, width * 0.08, width * 0.46, dayY, entrySize, lineGap);
+               drawLeaderboardColumn(leaderboardDayData, 10, 10, width * 0.54, width * 0.92, dayY, entrySize, lineGap);
+
+               textSize(leadSize);
+               fill(255, 215, 0);
+               text('--- MIDNIGHT FLIGHT ---', width / 2, height * 0.46);
+               let nightY = height * 0.5;
+               drawLeaderboardColumn(leaderboardNightData, 0, 10, width * 0.08, width * 0.46, nightY, entrySize, lineGap);
+               drawLeaderboardColumn(leaderboardNightData, 10, 10, width * 0.54, width * 0.92, nightY, entrySize, lineGap);
 
            } else {
                let leadSize = height * 0.025;
+               let entrySize = height * 0.018;
+               let lineGap = height * 0.008;
+
                textSize(leadSize);
                fill(255, 215, 0);
-               text('--- DAY FLIGHT ---', width * 0.25, height * 0.15);
-               text('--- MIDNIGHT FLIGHT ---', width * 0.75, height * 0.15);
-               
-               let entrySize = height * 0.02;
-               textSize(entrySize);
-               fill(255);
-               textAlign(LEFT, CENTER);
-               for(let i = 0; i < leaderboardDayData.length; i++) {
-                   let y = height * 0.25 + i * (entrySize + 10);
-                   text(`${i+1}. ${leaderboardDayData[i].name}`, width * 0.1, y);
-                   textAlign(RIGHT, CENTER);
-                   text(leaderboardDayData[i].score, width * 0.4, y);
-                   textAlign(LEFT, CENTER);
-               }
-               for(let i = 0; i < leaderboardNightData.length; i++) {
-                   let y = height * 0.25 + i * (entrySize + 10);
-                   text(`${i+1}. ${leaderboardNightData[i].name}`, width * 0.6, y);
-                   textAlign(RIGHT, CENTER);
-                   text(leaderboardNightData[i].score, width * 0.9, y);
-                   textAlign(LEFT, CENTER);
-               }
+               text('--- DAY FLIGHT ---', width * 0.25, height * 0.13);
+               text('--- MIDNIGHT FLIGHT ---', width * 0.75, height * 0.13);
+
+               let entryY = height * 0.19;
+               drawLeaderboardColumn(leaderboardDayData, 0, 10, width * 0.06, width * 0.23, entryY, entrySize, lineGap);
+               drawLeaderboardColumn(leaderboardDayData, 10, 10, width * 0.27, width * 0.44, entryY, entrySize, lineGap);
+               drawLeaderboardColumn(leaderboardNightData, 0, 10, width * 0.56, width * 0.73, entryY, entrySize, lineGap);
+               drawLeaderboardColumn(leaderboardNightData, 10, 10, width * 0.77, width * 0.94, entryY, entrySize, lineGap);
            }
 
            let btnWidth = min(width * 0.7, 400);
            let btnHeight = height * 0.08;
-           drawButton("Back", width / 2, height * 0.9, btnWidth, btnHeight);
-           
+           let backY = height * 0.9;
+           drawButton("Back", width / 2, backY, btnWidth, btnHeight, isMouseOverRect(width / 2, backY, btnWidth, btnHeight));
+
            drawDuxLink();
        }
        
@@ -532,18 +554,23 @@
            }
        }
        
-       function drawButton(txt, x, y, w, h) {
+       function isMouseOverRect(x, y, w, h) {
+           return mouseX > x - w / 2 && mouseX < x + w / 2 && mouseY > y - h / 2 && mouseY < y + h / 2;
+       }
+
+       function drawButton(txt, x, y, w, h, hovered = false) {
+           let by = y + (hovered ? -2 : 0);
            stroke(255);
            strokeWeight(3);
-           fill(60, 100, 255);
+           fill(hovered ? color(100, 140, 255) : color(60, 100, 255));
            rectMode(CENTER);
-           rect(x, y, w, h, 10);
+           rect(x, by, w, h, 10);
            fill(255);
            noStroke();
            textFont('Inter');
            textSize(h * 0.4);
            textAlign(CENTER, CENTER);
-           text(txt, x, y);
+           text(txt, x, by);
            rectMode(CORNER);
        }
        
@@ -561,6 +588,7 @@
                if (!pipes[i].passed && pipes[i].x + pipes[i].w < bird.x) {
                    pipes[i].passed = true;
                    score += 5;
+                   scorePopups.push(new ScorePopup(bird.x, bird.y - bird.size * 0.7));
                    if (score > 0 && score % 50 === 0) launchConfetti();
                }
                if (pipes[i].offscreen()) {
@@ -578,10 +606,17 @@
            shakeDuration = 20;
            shakeAmount = 8;
            easterEggActive = false;
+           gameOverAlpha = 0;
+           displayScore = 0;
+           for (let i = 0; i < 24; i++) {
+               impactParticles.push(new ImpactParticle(bird.x, bird.y));
+           }
 
            if (window.checkHighScore(score, midnightMode)) {
+               lastScoreWasHighScore = true;
                gameState = 'entering_name';
            } else {
+               lastScoreWasHighScore = false;
                gameState = 'over';
            }
        }
@@ -671,6 +706,11 @@
            gameState = 'play';
            pipes = [];
            confetti = [];
+           scorePopups = [];
+           impactParticles = [];
+           gameOverAlpha = 0;
+           displayScore = 0;
+           lastScoreWasHighScore = false;
            score = 0;
            bird.reset();
            pipes.push(new Pipe(null));
@@ -685,16 +725,20 @@
            reset() { this.size = height * 0.08; this.x = width / 4; this.y = height / 2; this.gravity = 0.0005 * height; this.lift = -0.012 * height; this.velocity = 0; this.baseY = height / 2; }
            update() { this.velocity += this.gravity; this.velocity *= 0.98; this.y += this.velocity; }
            hover() { this.x = width / 2; this.y = this.baseY + sin(frameCount * 0.05) * 10; this.velocity = 0; }
-           show() { 
+           show() {
                let imgToShow = easterEggActive ? secretBirdImg : birdImg;
-               push(); 
-               translate(this.x, this.y); 
-               let angle = map(this.velocity, -10, 15, -PI / 4, PI / 4); 
-               if (gameState !== 'play') angle = 0; 
-               rotate(angle); 
-               imageMode(CENTER); 
-               image(imgToShow, 0, 0, this.size, this.size); 
-               pop(); 
+               push();
+               translate(this.x, this.y);
+               let angle = map(this.velocity, -10, 15, -PI / 4, PI / 4);
+               if (gameState !== 'play') angle = 0;
+               rotate(angle);
+               imageMode(CENTER);
+               if (gameState === 'play') {
+                   let squashY = map(constrain(this.velocity, -10, 15), -10, 15, 0.82, 1.15);
+                   scale(2 - squashY, squashY);
+               }
+               image(imgToShow, 0, 0, this.size, this.size);
+               pop();
             }
            up() { this.velocity = this.lift; }
        }
@@ -788,7 +832,36 @@
            show() { fill(this.color); noStroke(); ellipse(this.x, this.y, this.size); }
            offscreen() { return this.y > height; }
        }
-       
+
+       class ScorePopup {
+           constructor(x, y) { this.x = x; this.y = y; this.life = 40; this.alpha = 255; }
+           update() { this.y -= 1.5; this.life--; this.alpha = map(this.life, 0, 40, 0, 255); }
+           show() {
+               push();
+               textFont('Press Start 2P');
+               textSize(20);
+               textAlign(CENTER, CENTER);
+               fill(255, 255, 255, this.alpha);
+               stroke(0, this.alpha);
+               strokeWeight(3);
+               text('+5', this.x, this.y);
+               pop();
+           }
+           offscreen() { return this.life <= 0; }
+       }
+
+       class ImpactParticle {
+           constructor(x, y) {
+               this.x = x; this.y = y;
+               this.vx = random(-4, 4); this.vy = random(-6, -1);
+               this.size = random(4, 9);
+               this.alpha = 255;
+           }
+           update() { this.vy += 0.3; this.x += this.vx; this.y += this.vy; this.alpha -= 8; }
+           show() { push(); noStroke(); fill(255, 255, 255, max(this.alpha, 0)); ellipse(this.x, this.y, this.size); pop(); }
+           offscreen() { return this.alpha <= 0; }
+       }
+
        function launchConfetti(x = bird.x, y = bird.y, count = 100) {
            for (let i = 0; i < count; i++) {
                confetti.push(new Confetti(x, y));
