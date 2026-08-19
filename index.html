@@ -135,16 +135,16 @@
        const showKeyboardBtn = document.getElementById('show-keyboard-btn');
        const inputContainer = document.getElementById('input-container');
 
-       let leaderboardDayRef, leaderboardNightRef, leaderboardRushRef;
+       let leaderboardDayRef, leaderboardNightRef, leaderboardStackedRef;
        let localLeaderboardDay = [];
        let localLeaderboardNight = [];
-       let localLeaderboardRush = [];
+       let localLeaderboardStacked = [];
        let newHighScore = null;
 
        const listForMode = (mode) =>
-           mode === 'rush' ? localLeaderboardRush : (mode === 'night' ? localLeaderboardNight : localLeaderboardDay);
+           mode === 'stacked' ? localLeaderboardStacked : (mode === 'night' ? localLeaderboardNight : localLeaderboardDay);
        const refForMode = (mode) =>
-           mode === 'rush' ? leaderboardRushRef : (mode === 'night' ? leaderboardNightRef : leaderboardDayRef);
+           mode === 'stacked' ? leaderboardStackedRef : (mode === 'night' ? leaderboardNightRef : leaderboardDayRef);
 
        const handleSubmit = async () => {
            if (!newHighScore) return;
@@ -186,12 +186,12 @@
        window.checkHighScore = checkHighScore;
 
        function setupLeaderboardListeners() {
-           let dayDataReceived = false, nightDataReceived = false, rushDataReceived = false, initialLoadSignaled = false;
+           let dayDataReceived = false, nightDataReceived = false, stackedDataReceived = false, initialLoadSignaled = false;
            const push = () => {
-               if (window.p5) window.p5.setLeaderboards(localLeaderboardDay, localLeaderboardNight, localLeaderboardRush);
+               if (window.p5) window.p5.setLeaderboards(localLeaderboardDay, localLeaderboardNight, localLeaderboardStacked);
            };
            const signalReady = () => {
-               if (dayDataReceived && nightDataReceived && rushDataReceived && !initialLoadSignaled) {
+               if (dayDataReceived && nightDataReceived && stackedDataReceived && !initialLoadSignaled) {
                    initialLoadSignaled = true;
                    if (window.p5 && typeof window.p5.firebaseReady === 'function') {
                        window.p5.firebaseReady();
@@ -212,10 +212,10 @@
                push();
                signalReady();
            });
-           leaderboardRushRef = doc(db, `artifacts/${appId}/public/data/leaderboard/rush_mode`);
-           onSnapshot(leaderboardRushRef, (doc) => {
-               localLeaderboardRush = doc.exists() ? doc.data().scores || [] : [];
-               rushDataReceived = true;
+           leaderboardStackedRef = doc(db, `artifacts/${appId}/public/data/leaderboard/stacked_mode`);
+           onSnapshot(leaderboardStackedRef, (doc) => {
+               localLeaderboardStacked = doc.exists() ? doc.data().scores || [] : [];
+               stackedDataReceived = true;
                push();
                signalReady();
            });
@@ -244,7 +244,7 @@
 
 <script>
        // Your p5.js game code
-       const DEPLOY_VERSION = '1.12.0';
+       const DEPLOY_VERSION = '1.13.0';
        let bird;
        let birdImg, secretBirdImg, titleImg, sunImg, moonImg;
        let dayCloudImgs = [], nightCloudImgs = [];
@@ -258,7 +258,7 @@
        let confetti = [];
        let leaderboardDayData = [];
        let leaderboardNightData = [];
-       let leaderboardRushData = [];
+       let leaderboardStackedData = [];
        let leaderboardTab = 'day';
        let bestDayScore = 0;
        let bestNightScore = 0;
@@ -287,16 +287,16 @@
        let shieldFlashTimer = 0;
        let shieldParticles = [];
 
-       // --- RUSH mode ---
-       let rushMode = false;
-       let rushHue = 0;
+       // --- STACKED mode ---
+       let stackedMode = false;
+       let stackedHue = 0;
        let hazards = [];
-       let rushShapes = [];
-       let bestRushScore = 0;
+       let stackedShapes = [];
+       let bestStackedScore = 0;
 
-       // Menu backdrop cycles day -> midnight -> rush. Themes are rendered
+       // Menu backdrop cycles day -> midnight -> stacked. Themes are rendered
        // into offscreen buffers so one can crossfade over the other.
-       const MENU_THEMES = ['day', 'night', 'rush'];
+       const MENU_THEMES = ['day', 'night', 'stacked'];
        const MENU_HOLD = 300;
        const MENU_FADE = 70;
        let menuBufA = null, menuBufB = null;
@@ -304,10 +304,10 @@
 
        window.p5 = this;
        
-       this.setLeaderboards = (dayData, nightData, rushData) => {
+       this.setLeaderboards = (dayData, nightData, stackedData) => {
            leaderboardDayData = dayData;
            leaderboardNightData = nightData;
-           leaderboardRushData = rushData || [];
+           leaderboardStackedData = stackedData || [];
        }
        this.resetGameAfterScoreSubmit = () => {
             gameState = 'over';
@@ -341,7 +341,9 @@
            bird = new Bird();
            bestDayScore = parseInt(localStorage.getItem('duxHighFlyBestDay')) || 0;
            bestNightScore = parseInt(localStorage.getItem('duxHighFlyBestNight')) || 0;
-           bestRushScore = parseInt(localStorage.getItem('duxHighFlyBestRush')) || 0;
+           // Fall back to the old key so a returning player's personal best
+           // does not silently reset to 0 after the RUSH -> STACKED rename.
+           bestStackedScore = parseInt(localStorage.getItem('duxHighFlyBestStacked')) || parseInt(localStorage.getItem('duxHighFlyBestRush')) || 0;
            for (let i = 0; i < 3; i++) {
                clouds.push(new Cloud(random(width), random(height * 0.05, height * 0.25)));
            }
@@ -366,8 +368,8 @@
            if (gameState === 'start') {
                // Menu shows its own cycling backdrop rather than any one mode.
                drawMenuBackground();
-           } else if (rushMode) {
-               drawRushBackground();
+           } else if (stackedMode) {
+               drawStackedBackground();
            } else if (midnightMode) {
                 background(8, 12, 24);
                 imageMode(CENTER);
@@ -381,8 +383,8 @@
                return;
            }
            if (gameState !== 'start') {
-               if (rushMode) {
-                   drawRushScenery();
+               if (stackedMode) {
+                   drawStackedScenery();
                } else if (!midnightMode) {
                    drawScenery();
                } else {
@@ -390,7 +392,7 @@
                }
            }
 
-           if (gameState !== 'start' && !rushMode && (gameState === 'play' || gameState === 'over' || gameState === 'entering_name' || gameState === 'leaderboard')) {
+           if (gameState !== 'start' && !stackedMode && (gameState === 'play' || gameState === 'over' || gameState === 'entering_name' || gameState === 'leaderboard')) {
                 for (let cloud of clouds) {
                     cloud.show();
                     if(gameState === 'play') cloud.update();
@@ -439,7 +441,7 @@
                bird.show();
                playGame();
                bird.update();
-               if (rushMode || starMode) {
+               if (stackedMode || starMode) {
                    neonTrail.push(new NeonSparkle(bird.x - bird.size * 0.35, bird.y));
                }
                for (let i = neonTrail.length - 1; i >= 0; i--) {
@@ -466,7 +468,7 @@
                textAlign(CENTER, TOP);
                text(score, width / 2, 20);
            } else if (gameState === 'over' || gameState === 'entering_name') {
-               if (midnightMode && !rushMode) { for (let i = rain.length - 1; i >= 0; i--) { rain[i].show(); } }
+               if (midnightMode && !stackedMode) { for (let i = rain.length - 1; i >= 0; i--) { rain[i].show(); } }
                for (let p of pipes) { p.show(); }
                for (let hz of hazards) { hz.show(); }
                bird.show();
@@ -506,26 +508,26 @@
            rect(0, height - 50, width, 50);
        }
 
-       // --- RUSH mode visuals ---
+       // --- STACKED mode visuals ---
        // Ping-pong the hue across a synthwave band (cyan -> blue -> purple ->
        // magenta). A full 0-360 cycle would swing through olive/brown, which
        // turns muddy at these low brightnesses.
-       function rushHueAt(phase) {
+       function stackedHueAt(phase) {
            let t = (((phase % 360) + 360) % 360) / 360;
            let tri = t < 0.5 ? t * 2 : (1 - t) * 2;
            return 185 + tri * 150;
        }
 
-       function rushColor(offset, sat = 90, bri = 100, alpha = 255) {
+       function stackedColor(offset, sat = 90, bri = 100, alpha = 255) {
            push();
            colorMode(HSB, 360, 100, 100, 255);
-           let c = color(rushHueAt(rushHue + offset), sat, bri, alpha);
+           let c = color(stackedHueAt(stackedHue + offset), sat, bri, alpha);
            pop();
            return c;
        }
 
-       function drawRushBackground() {
-           if (gameState === 'play') rushHue = (rushHue + 1.1) % 360;
+       function drawStackedBackground() {
+           if (gameState === 'play') stackedHue = (stackedHue + 1.1) % 360;
 
            push();
            colorMode(HSB, 360, 100, 100, 255);
@@ -536,7 +538,7 @@
            for (let i = 0; i < bands; i++) {
                let t = i / (bands - 1);
                // deep + saturated so the neon foreground stays readable
-               fill(rushHueAt(rushHue + t * 70), 92, lerp(16, 40, t));
+               fill(stackedHueAt(stackedHue + t * 70), 92, lerp(16, 40, t));
                rect(0, i * bandH - 1, width, bandH + 2);
            }
            pop();
@@ -552,23 +554,23 @@
            }
        }
 
-       function drawRushScenery() {
-           for (let s of rushShapes) {
+       function drawStackedScenery() {
+           for (let s of stackedShapes) {
                if (gameState === 'play') s.update();
                s.show();
            }
            // neon floor strip
            push();
            noStroke();
-           fill(rushColor(180, 90, 60));
+           fill(stackedColor(180, 90, 60));
            rect(0, height - 40, width, 40);
-           fill(rushColor(180, 80, 100, 200));
+           fill(stackedColor(180, 80, 100, 200));
            rect(0, height - 44, width, 4);
            pop();
        }
 
        function currentMode() {
-           return rushMode ? 'rush' : (midnightMode ? 'night' : 'day');
+           return stackedMode ? 'stacked' : (midnightMode ? 'night' : 'day');
        }
 
        // Deterministic pseudo-random in [0,1) so menu decor keeps its position
@@ -632,7 +634,7 @@
                let bands = 24, bandH = H / bands;
                for (let i = 0; i < bands; i++) {
                    let t = i / (bands - 1);
-                   g.fill(rushHueAt(frameCount * 1.1 + t * 70), 92, lerp(16, 40, t));
+                   g.fill(stackedHueAt(frameCount * 1.1 + t * 70), 92, lerp(16, 40, t));
                    g.rect(0, i * bandH - 1, W, bandH + 2);
                }
                g.noFill();
@@ -642,7 +644,7 @@
                    let span = W + size * 2;
                    let x = W + size - ((frameCount * (0.5 + hash01(i + 9) * 1.6) + i * span / 12) % span);
                    let y = H * (0.06 + 0.8 * hash01(i + 31));
-                   g.stroke(rushHueAt(frameCount * 1.1 + hash01(i + 5) * 360), 80, 100, 110);
+                   g.stroke(stackedHueAt(frameCount * 1.1 + hash01(i + 5) * 360), 80, 100, 110);
                    g.push();
                    g.translate(x, y);
                    g.rotate(frameCount * 0.01 + i);
@@ -653,9 +655,9 @@
                    g.pop();
                }
                g.noStroke();
-               g.fill(rushHueAt(frameCount * 1.1 + 180), 90, 60);
+               g.fill(stackedHueAt(frameCount * 1.1 + 180), 90, 60);
                g.rect(0, H - 40, W, 40);
-               g.fill(rushHueAt(frameCount * 1.1 + 180), 80, 100, 200);
+               g.fill(stackedHueAt(frameCount * 1.1 + 180), 80, 100, 200);
                g.rect(0, H - 44, W, 4);
                g.colorMode(RGB, 255);
            }
@@ -704,7 +706,7 @@
        // which a mode reaches its hardest settings.
        function modeDifficulty() {
            let cfg;
-           if (rushMode) {
+           if (stackedMode) {
                cfg = { ramp: 900, gap: [0.40, 0.26], spd: [0.0058, 0.0105], iv: [84, 40] };
            } else if (midnightMode) {
                cfg = { ramp: 700, gap: [0.36, 0.25], spd: [0.0055, 0.0095], iv: [85, 45] };
@@ -720,8 +722,9 @@
            };
        }
 
-       // Menu button metrics. With RUSH unlocked there are 4 buttons, so they
-       // shrink and the stack is anchored to the bottom to stay on screen.
+       // Menu button metrics. There are 4 buttons (Start/Midnight/Leaderboard/
+       // STACKED), so they shrink and the stack is anchored to the bottom to
+       // stay on screen.
        function startMenuLayout() {
            let btnWidth = min(width * 0.7, 400);
            let btnHeight = height * 0.068;
@@ -743,7 +746,7 @@
            textSize(max(11, height * 0.017));
            textAlign(CENTER, CENTER);
            let L = startMenuLayout();
-           let bestLine = `Day Best: ${bestDayScore}    Night Best: ${bestNightScore}    Rush Best: ${bestRushScore}`;
+           let bestLine = `Day Best: ${bestDayScore}    Night Best: ${bestNightScore}    Stacked Best: ${bestStackedScore}`;
            text(bestLine, width / 2, L.base - L.btnHeight / 2 - height * 0.035);
 
            let btnWidth = L.btnWidth;
@@ -756,7 +759,7 @@
            drawButton("Leaderboard", width / 2, sBy3, btnWidth, btnHeight, isMouseOverRect(width / 2, sBy3, btnWidth, btnHeight));
 
            let sBy4 = base + step * 3;
-           drawRushButton("⚡ RUSH ⚡", width / 2, sBy4, btnWidth, btnHeight, isMouseOverRect(width / 2, sBy4, btnWidth, btnHeight));
+           drawStackedButton("⚡ STACKED ⚡", width / 2, sBy4, btnWidth, btnHeight, isMouseOverRect(width / 2, sBy4, btnWidth, btnHeight));
 
            drawDuxLink();
            
@@ -777,11 +780,11 @@
            textAlign(CENTER, CENTER);
            let titleSize = height * 0.08;
            textSize(titleSize);
-           if (rushMode) {
-               fill(rushColor(0, 90, 100));
+           if (stackedMode) {
+               fill(stackedColor(0, 90, 100));
                stroke(0);
                strokeWeight(3);
-               text('RUSH OVER', width/2, height * 0.3);
+               text('STACKED OVER', width/2, height * 0.3);
            } else {
                fill(180, 0, 0);
                stroke(0);
@@ -806,7 +809,7 @@
 
            textSize(height * 0.025);
            fill(255, 230);
-           let modeBest = rushMode ? bestRushScore : (midnightMode ? bestNightScore : bestDayScore);
+           let modeBest = stackedMode ? bestStackedScore : (midnightMode ? bestNightScore : bestDayScore);
            text(`Best: ${modeBest}`, width/2, height * 0.51);
 
            let medal = medalFor(score, currentMode());
@@ -815,9 +818,9 @@
            let btnWidth = min(width * 0.7, 400);
            let btnHeight = height * 0.08;
            let gBy1 = height * 0.7, gBy2 = height * 0.7 + btnHeight + 20, gBy3 = height * 0.7 + (btnHeight + 20) * 2;
-           if (rushMode) {
-               drawRushButton("RUSH AGAIN", width / 2, gBy1, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy1, btnWidth, btnHeight));
-               drawButton("Exit Rush", width / 2, gBy2, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy2, btnWidth, btnHeight));
+           if (stackedMode) {
+               drawStackedButton("STACKED AGAIN", width / 2, gBy1, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy1, btnWidth, btnHeight));
+               drawButton("Exit Stacked", width / 2, gBy2, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy2, btnWidth, btnHeight));
                drawButton("Leaderboard", width / 2, gBy3, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy3, btnWidth, btnHeight));
            } else {
                drawButton("Fly Again", width / 2, gBy1, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy1, btnWidth, btnHeight));
@@ -833,10 +836,10 @@
        }
        
        // Medals give a run something to aim at between "died early" and
-       // "made the leaderboard". RUSH thresholds are higher because it pays
+       // "made the leaderboard". STACKED thresholds are higher because it pays
        // double per pipe.
        function medalFor(s, mode) {
-           const tiers = mode === 'rush'
+           const tiers = mode === 'stacked'
                ? [[2500, 'PLATINUM', [226, 232, 240], [148, 163, 184]],
                   [1200, 'GOLD',     [255, 215, 60],  [186, 148, 20]],
                   [600,  'SILVER',   [226, 226, 232], [150, 150, 165]],
@@ -886,7 +889,7 @@
        const LEADERBOARD_TABS = [
            { id: 'day', label: 'DAY' },
            { id: 'night', label: 'MIDNIGHT' },
-           { id: 'rush', label: 'RUSH' }
+           { id: 'stacked', label: 'STACKED' }
        ];
 
        function leaderboardTabRect(i) {
@@ -899,7 +902,7 @@
        }
 
        function leaderboardDataFor(id) {
-           if (id === 'rush') return leaderboardRushData;
+           if (id === 'stacked') return leaderboardStackedData;
            if (id === 'night') return leaderboardNightData;
            return leaderboardDayData;
        }
@@ -919,7 +922,7 @@
                push();
                rectMode(CENTER);
                strokeWeight(selected ? 3 : 2);
-               if (tab.id === 'rush') {
+               if (tab.id === 'stacked') {
                    stroke(selected ? color(255, 255, 255) : color(255, 120, 220));
                    fill(selected ? color(150, 40, 170) : (hovered ? color(90, 30, 110) : color(45, 20, 60)));
                } else {
@@ -942,8 +945,8 @@
            textFont('Press Start 2P');
            textAlign(CENTER, CENTER);
            textSize(height * 0.022);
-           fill(leaderboardTab === 'rush' ? color(255, 120, 220) : color(255, 215, 0));
-           let heading = leaderboardTab === 'rush' ? '--- RUSH ---'
+           fill(leaderboardTab === 'stacked' ? color(255, 120, 220) : color(255, 215, 0));
+           let heading = leaderboardTab === 'stacked' ? '--- STACKED ---'
                : (leaderboardTab === 'night' ? '--- MIDNIGHT FLIGHT ---' : '--- DAY FLIGHT ---');
            text(heading, width / 2, height * 0.2);
            pop();
@@ -1067,7 +1070,7 @@
            return mouseX > x - w / 2 && mouseX < x + w / 2 && mouseY > y - h / 2 && mouseY < y + h / 2;
        }
 
-       function drawRushButton(txt, x, y, w, h, hovered = false) {
+       function drawStackedButton(txt, x, y, w, h, hovered = false) {
            let by = y + (hovered ? -2 : 0);
            let cycle = (frameCount * 2) % 360;
            push();
@@ -1124,17 +1127,17 @@
            // While a laser is telegraphing/firing, hold off on new pipes. That
            // keeps the corridor the player must thread through predictable, and
            // reads as a deliberate breather in the pipe rhythm.
-           let holdPipes = rushMode && hazards.length > 0;
+           let holdPipes = stackedMode && hazards.length > 0;
             if (frameCount % diff.interval === 0 && !holdPipes) {
                let lastPipe = pipes.length > 0 ? pipes[pipes.length - 1] : null;
                let newPipe = new Pipe(lastPipe);
                pipes.push(newPipe);
-               if (!hasShield && !powerUp && score > 0 && random() < (rushMode ? 0.26 : 0.18)) {
+               if (!hasShield && !powerUp && score > 0 && random() < (stackedMode ? 0.26 : 0.18)) {
                    powerUp = new PowerUp(newPipe.x + newPipe.w / 2, newPipe.top + newPipe.spacing / 2);
                }
            }
 
-           if (rushMode) {
+           if (stackedMode) {
                // One laser at a time, and only once a run is properly underway.
                if (score >= 150 && hazards.length === 0 && random() < lerp(0.005, 0.013, diff.t)) {
                    spawnSafeLaser();
@@ -1169,7 +1172,7 @@
                }
                if (!pipes[i].passed && pipes[i].x + pipes[i].w < bird.x) {
                    pipes[i].passed = true;
-                   let gain = rushMode ? 10 : 5;
+                   let gain = stackedMode ? 10 : 5;
                    score += gain;
                    scorePopups.push(new ScorePopup(bird.x, bird.y - bird.size * 0.7, gain));
                    if (score > 0 && score % 50 === 0) launchConfetti();
@@ -1207,10 +1210,10 @@
                impactParticles.push(new ImpactParticle(bird.x, bird.y));
            }
 
-           if (rushMode) {
-               if (score > bestRushScore) {
-                   bestRushScore = score;
-                   localStorage.setItem('duxHighFlyBestRush', bestRushScore);
+           if (stackedMode) {
+               if (score > bestStackedScore) {
+                   bestStackedScore = score;
+                   localStorage.setItem('duxHighFlyBestStacked', bestStackedScore);
                }
            } else if (midnightMode) {
                if (score > bestNightScore) {
@@ -1274,7 +1277,7 @@
            // Keyboard parity with the mouse: start, retry and back-out without
            // having to reach for the pointer.
            if (gameState === 'start' && confirm) {
-               midnightMode = false; rushMode = false;
+               midnightMode = false; stackedMode = false;
                startGame();
                return false;
            }
@@ -1288,7 +1291,7 @@
                return false;
            }
            if (gameState === 'over' && keyCode === ESCAPE) {
-               rushMode = false;
+               stackedMode = false;
                gameState = 'start';
                return false;
            }
@@ -1311,12 +1314,12 @@
                let step = L.step;
                if (isMouseOverRect(width/2, base, btnWidth, btnHeight)) {
                    midnightMode = false;
-                   rushMode = false;
+                   stackedMode = false;
                    startGame();
                }
                if (isMouseOverRect(width/2, base + step, btnWidth, btnHeight)) {
                    midnightMode = true;
-                   rushMode = false;
+                   stackedMode = false;
                    startGame();
                }
                if (isMouseOverRect(width/2, base + step * 2, btnWidth, btnHeight)) {
@@ -1324,7 +1327,7 @@
                }
                if (isMouseOverRect(width/2, base + step * 3, btnWidth, btnHeight)) {
                    midnightMode = false;
-                   rushMode = true;
+                   stackedMode = true;
                    startGame();
                }
            } else if (gameState === 'over') {
@@ -1336,8 +1339,8 @@
                    startGame();
                }
                if (isMouseOverRect(width/2, height*0.7 + step, btnWidth, btnHeight)) {
-                   if (rushMode) {
-                       rushMode = false;
+                   if (stackedMode) {
+                       stackedMode = false;
                        gameState = 'start';
                    } else {
                        midnightMode = !midnightMode;
@@ -1387,9 +1390,9 @@
            for (let i = 0; i < 3; i++) {
                clouds.push(new Cloud(random(width, width * 1.5), random(height * 0.05, height * 0.25)));
            }
-           if (rushMode) {
-               rushShapes = [];
-               for (let i = 0; i < 14; i++) rushShapes.push(new RushShape());
+           if (stackedMode) {
+               stackedShapes = [];
+               for (let i = 0; i < 14; i++) stackedShapes.push(new StackedShape());
            }
        }
        
@@ -1415,12 +1418,12 @@
            return starBuf;
        }
 
-       // Day flies the original duck; Midnight and RUSH fly the magenta one.
+       // Day flies the original duck; Midnight and STACKED fly the magenta one.
        // The menu always shows the default so the 5-tap star toggle reads
        // against a known baseline.
        function birdSpriteForMode() {
            if (gameState === 'start') return birdImg;
-           return (rushMode || midnightMode) ? secretBirdImg : birdImg;
+           return (stackedMode || midnightMode) ? secretBirdImg : birdImg;
        }
 
        class Bird {
@@ -1618,8 +1621,8 @@
            }
        }
 
-       // Drifting neon shapes in the RUSH backdrop.
-       class RushShape {
+       // Drifting neon shapes in the STACKED backdrop.
+       class StackedShape {
            constructor() {
                this.reset(true);
            }
@@ -1643,7 +1646,7 @@
                translate(this.x, this.y);
                rotate(this.angle);
                noFill();
-               stroke(rushColor(this.hueOffset, 80, 100, 110));
+               stroke(stackedColor(this.hueOffset, 80, 100, 110));
                strokeWeight(2);
                if (this.kind === 0) {
                    ellipse(0, 0, this.size);
@@ -1679,7 +1682,7 @@
                this.w = width * 0.1;
                this.speed = diff.speed;
                this.passed = false;
-               this.rushHueOffset = random(360);
+               this.stackedHueOffset = random(360);
 
                const dayPalettes = [
                    [color(110, 200, 60), color(70, 150, 40)],
@@ -1738,7 +1741,7 @@
            }
            
            show() {
-               if (rushMode) { this.showRush(); return; }
+               if (stackedMode) { this.showStacked(); return; }
                noStroke();
                fill(this.color1);
                rect(this.x, 0, this.w, this.top);
@@ -1771,23 +1774,23 @@
                rect(this.x - 5, this.top - 25, this.w + 10, 25);
                rect(this.x - 5, height - this.bottom, this.w + 10, 25);
            }
-           showRush() {
+           showStacked() {
                push();
                noStroke();
                // outer glow
-               fill(rushColor(this.rushHueOffset, 85, 100, 55));
+               fill(stackedColor(this.stackedHueOffset, 85, 100, 55));
                rect(this.x - 6, 0, this.w + 12, this.top);
                rect(this.x - 6, height - this.bottom, this.w + 12, this.bottom);
                // body
-               fill(rushColor(this.rushHueOffset, 80, 65));
+               fill(stackedColor(this.stackedHueOffset, 80, 65));
                rect(this.x, 0, this.w, this.top);
                rect(this.x, height - this.bottom, this.w, this.bottom);
                // bright inner core stripe
-               fill(rushColor(this.rushHueOffset + 40, 55, 100, 220));
+               fill(stackedColor(this.stackedHueOffset + 40, 55, 100, 220));
                rect(this.x + this.w * 0.34, 0, this.w * 0.32, this.top);
                rect(this.x + this.w * 0.34, height - this.bottom, this.w * 0.32, this.bottom);
                // lip caps
-               fill(rushColor(this.rushHueOffset + 180, 70, 100));
+               fill(stackedColor(this.stackedHueOffset + 180, 70, 100));
                rect(this.x - 6, this.top - 22, this.w + 12, 22);
                rect(this.x - 6, height - this.bottom, this.w + 12, 22);
                pop();
