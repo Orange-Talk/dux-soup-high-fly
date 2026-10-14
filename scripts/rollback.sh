@@ -25,7 +25,9 @@ want="${1:-}"
 git fetch --quiet origin main
 sha=""
 for c in $(git rev-list origin/main); do
-  if git show "$c:index.html" 2>/dev/null | grep -q "DEPLOY_VERSION = '$want'"; then sha="$c"; break; fi
+  # git grep (not "git show | grep -q"): with pipefail, grep -q closing the
+  # pipe early makes the pipeline fail and every version looks missing.
+  if git grep -q -F "DEPLOY_VERSION = '$want'" "$c" -- index.html 2>/dev/null; then sha="$c"; break; fi
 done
 [ -n "$sha" ] || { echo "No commit on main has version $want. Versions are listed in CHANGELOG.md."; exit 1; }
 short=$(git rev-parse --short "$sha")
