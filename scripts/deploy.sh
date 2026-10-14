@@ -59,8 +59,15 @@ npx --yes "$FIREBASE_TOOLS" deploy --only hosting --project "$PROJECT" \
   --message "v$version ($short_sha)" --non-interactive
 
 step "Verifying the live site"
-sleep 3
-now_live=$(curl -fsSL --max-time 15 -H 'Cache-Control: no-cache' "$LIVE_URL?v=$short_sha" | grep -oE "DEPLOY_VERSION = '[^']+'" | head -1 | sed -E "s/.*'([^']+)'/\1/" || true)
+# Firebase's edge servers can take a few seconds to pick up a release, so
+# retry for up to ~45 seconds before calling it a failure.
+now_live=""
+for attempt in 1 2 3 4 5 6 7 8 9; do
+  sleep 5
+  now_live=$(curl -fsSL --max-time 15 -H 'Cache-Control: no-cache' "$LIVE_URL?v=$short_sha$attempt" | grep -oE "DEPLOY_VERSION = '[^']+'" | head -1 | sed -E "s/.*'([^']+)'/\1/" || true)
+  [ "$now_live" = "$version" ] && break
+  echo "  live site still shows ${now_live:-nothing}, checking again..."
+done
 [ "$now_live" = "$version" ] || die "deploy finished but the site reports '${now_live:-nothing}' instead of $version. Check the Firebase console > Hosting."
 og_status=$(curl -s -o /dev/null -w '%{http_code}' --max-time 15 "${LIVE_URL}og-image.jpg")
 [ "$og_status" = "200" ] || die "share preview image returned HTTP $og_status"
