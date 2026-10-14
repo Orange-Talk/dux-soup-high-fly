@@ -316,7 +316,7 @@
 
 <script>
        // Your p5.js game code
-       const DEPLOY_VERSION = '1.15.0';
+       const DEPLOY_VERSION = '1.15.1';
        const SHARE_URL = 'https://highflygame-1ac8f.web.app/';
        // p5 drops the font name straight into the canvas font string. Unquoted,
        // "Press Start 2P" is invalid CSS (a name part can't start with a
@@ -388,6 +388,7 @@
        // down.
        const SIM_STEP_MS = 1000 / 60;
        const STAR_SPEED = 1.5;
+       const DUCK_DRAW_SCALE = 1.3;
        let simAcc = 0;
        let simFrame = 0;
 
@@ -2234,6 +2235,43 @@
            }
        }
 
+       // Chunky two-tone retro outline around the duck (added in 1.15.1).
+       // The duck logo is thin line art, so on busy pixel backdrops it got
+       // lost. A dark outer ring plus a white inner ring reads on every
+       // background (light sky, night city, neon STACKED). The silhouettes are
+       // built once per sprite and colour, then stamped around the duck in a
+       // ring of offsets. Purely visual: size and hitbox are unchanged.
+       const duckOutlineCache = new Map();
+       function duckSilhouette(img, col) {
+           const key = (img === secretBirdImg ? 'm' : 'd') + col;
+           if (duckOutlineCache.has(key)) return duckOutlineCache.get(key);
+           if (!img || !img.width) return null;
+           const g = createGraphics(160, 160);
+           g.pixelDensity(1);
+           g.image(img, 0, 0, 160, 160);
+           g.drawingContext.globalCompositeOperation = 'source-in';
+           g.noStroke();
+           g.fill(col);
+           g.rect(0, 0, 160, 160);
+           g.drawingContext.globalCompositeOperation = 'source-over';
+           duckOutlineCache.set(key, g);
+           return g;
+       }
+       function drawDuckOutline(img, size) {
+           const dark = duckSilhouette(img, '#0b1033');
+           const light = duckSilhouette(img, '#ffffff');
+           if (!dark || !light) return;
+           const outer = max(3, size * 0.085), inner = max(2, size * 0.04);
+           for (let a = 0; a < 16; a++) {
+               const ang = a * TWO_PI / 16;
+               image(dark, cos(ang) * outer, sin(ang) * outer, size, size);
+           }
+           for (let a = 0; a < 12; a++) {
+               const ang = a * TWO_PI / 12;
+               image(light, cos(ang) * inner, sin(ang) * inner, size, size);
+           }
+       }
+
        // Recolour a sprite's opaque pixels to a single cycling hue.
        //
        // tint() can't do this: it multiplies, so tinting the blue/yellow duck
@@ -2282,13 +2320,17 @@
                    scale(2 - squashY, squashY);
                }
 
+               // Drawn 30% larger than its hitbox so it reads on a phone; the
+               // collision size (this.size) is unchanged.
+               const ds = this.size * DUCK_DRAW_SCALE;
+               drawDuckOutline(imgToShow, ds);
                if (starMode) {
                    // Mario-style invincibility strobe: flash between the duck's
                    // own colours and a solid rainbow recolour of its shape.
                    let sil = (frameCount % 8 < 5) ? starSilhouette(imgToShow) : null;
-                   image(sil || imgToShow, 0, 0, this.size, this.size);
+                   image(sil || imgToShow, 0, 0, ds, ds);
                } else {
-                   image(imgToShow, 0, 0, this.size, this.size);
+                   image(imgToShow, 0, 0, ds, ds);
                }
                pop();
 

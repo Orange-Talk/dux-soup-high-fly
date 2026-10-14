@@ -11,6 +11,15 @@ Rules (enforced by `scripts/check.sh`):
 
 ---
 
+## [1.15.1] - 2026-10-14
+
+### Fixed
+- The duck was hard to see in every mode (thin line-art logo over busy
+  pixel backdrops). It now has a chunky two-tone retro outline, dark outside
+  and white inside, so it pops on light sky, night city and neon STACKED.
+  The duck is also drawn 30% bigger. Its hitbox is unchanged, so it is
+  easier to see without being any easier to crash.
+
 ## [1.15.0] - 2026-10-14
 
 8-bit art upgrade. Everything in the background is now true pixel art.
