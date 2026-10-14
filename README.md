@@ -110,8 +110,11 @@ already live. After deploying it confirms the live site reports the new version.
 If Firebase asks you to log in, run `npx firebase-tools@15 login --no-localhost`
 in Cloud Shell, open the link it prints, approve, and paste the code back.
 
-**Rollback:** Firebase console > Hosting > Release history > pick an older
-release > Rollback. Each release is labelled with its version and git commit.
+**Rollback:** in Cloud Shell, `bash scripts/rollback.sh 1.14.0` (any version
+in CHANGELOG.md) puts that version back live in about a minute and confirms
+it. GitHub keeps the newer code, so you can redeploy it later. No-terminal
+option: Firebase console > Hosting > Release history > pick an older release
+> Rollback. Each release is labelled with its version and git commit.
 
 ### After a deploy: refresh link previews
 

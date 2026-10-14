@@ -11,6 +11,29 @@ Rules (enforced by `scripts/check.sh`):
 
 ---
 
+## [1.15.0] - 2026-10-14
+
+8-bit art upgrade. Everything in the background is now true pixel art.
+
+### Added
+- Day: a pixel-art world tour. Golden Gate, Eiffel Tower, Pyramids, Taj
+  Mahal, Statue of Liberty, Colosseum, Big Ben and the Sydney Opera House
+  drift by behind the pipes in random order, faded so they never block the
+  view. Pixel grass ground.
+- Midnight: a pixel city skyline (two layers moving at different speeds,
+  lit windows) over harbor water with drifting reflections, plus twinkling
+  pixel stars.
+- STACKED: a wild synthwave scene. Giant striped sun, neon grid floor
+  rushing at you, stepped mountains, floating pixel glyphs, shooting stars,
+  glitch slices and CRT scanlines.
+- Rainbow Dux (tap the menu duck 5 times) now runs the whole game at 1.5x
+  speed, with a toast and a note on the ready screen.
+- `scripts/rollback.sh` to put any earlier version back live in one command.
+
+### Changed
+- The menu backdrop uses the same new pixel scenes.
+- Removed the old vector backdrop code it replaced.
+
 ## [1.14.0] - 2026-10-13
 
 Mobile-first overhaul. Almost everyone plays on a phone browser.

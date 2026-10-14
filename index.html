@@ -316,7 +316,7 @@
 
 <script>
        // Your p5.js game code
-       const DEPLOY_VERSION = '1.14.0';
+       const DEPLOY_VERSION = '1.15.0';
        const SHARE_URL = 'https://highflygame-1ac8f.web.app/';
        // p5 drops the font name straight into the canvas font string. Unquoted,
        // "Press Start 2P" is invalid CSS (a name part can't start with a
@@ -387,6 +387,7 @@
        // in fixed 60Hz steps, catching up on slower phones instead of slowing
        // down.
        const SIM_STEP_MS = 1000 / 60;
+       const STAR_SPEED = 1.5;
        let simAcc = 0;
        let simFrame = 0;
 
@@ -543,6 +544,7 @@
            // The menu backdrop is soft art behind the UI, so 1x is plenty.
            try { menuBufA.pixelDensity(1); menuBufB.pixelDensity(1); } catch (e) {}
            starBuf = createGraphics(256, 256);
+           buildPixelArt();
            bird = new Bird();
            bestDayScore = parseInt(safeGet('duxHighFlyBestDay')) || 0;
            bestNightScore = parseInt(safeGet('duxHighFlyBestNight')) || 0;
@@ -650,8 +652,9 @@
            // steps run here first.
            let simSteps = 1;
            if (gameState === 'play') {
-               simAcc += min(deltaTime, 100);
-               simSteps = constrain(floor((simAcc + 4) / SIM_STEP_MS), 1, 4);
+               // Rainbow Dux (the 5-tap easter egg) runs the whole game at 1.5x.
+               simAcc += min(deltaTime, 100) * (starMode ? STAR_SPEED : 1);
+               simSteps = constrain(floor((simAcc + 4) / SIM_STEP_MS), 1, 6);
                simAcc = constrain(simAcc - simSteps * SIM_STEP_MS, -8, SIM_STEP_MS);
                for (let s = 1; s < simSteps && gameState === 'play'; s++) simulateStep();
            }
@@ -665,14 +668,20 @@
            if (gameState === 'start') {
                // Menu shows its own cycling backdrop rather than any one mode.
                drawMenuBackground();
-           } else if (stackedMode) {
-               drawStackedBackground();
-           } else if (midnightMode) {
-                background(8, 12, 24);
-                imageMode(CENTER);
-                image(moonImg, width * 0.9, height * 0.15, width * 0.1, width * 0.1);
            } else {
-               background(135, 206, 235);
+               if (stackedMode && gameState === 'play') stackedHue = (stackedHue + 1.1) % 360;
+               drawBackdrop(MAIN, currentMode(), bgScroll, frameCount, false);
+               if (stackedMode && gameState === 'play') {
+                   // beat pulse
+                   let beat = (frameCount % 40) / 40;
+                   if (beat < 0.18) {
+                       push();
+                       noStroke();
+                       fill(255, 255, 255, map(beat, 0, 0.18, 35, 0));
+                       rect(0, 0, width, height);
+                       pop();
+                   }
+               }
            }
 
            if (gameState === 'loading') {
@@ -680,15 +689,7 @@
                pop();
                return;
            }
-           if (gameState !== 'start') {
-               if (stackedMode) {
-                   drawStackedScenery();
-               } else if (!midnightMode) {
-                   drawScenery();
-               } else {
-                   drawNightScenery();
-               }
-           }
+           if (gameState !== 'start' && stackedMode) drawStackedScenery();
 
            if (gameState !== 'start' && !stackedMode) {
                 for (let cloud of clouds) {
@@ -835,6 +836,7 @@
            textSize(max(12, height * 0.018));
            let modeName = stackedMode ? 'STACKED: double points, watch for lasers'
                : (midnightMode ? 'Midnight Flight' : 'Day Flight');
+           if (starMode) modeName += '  |  RAINBOW DUX 1.5x';
            fitTextSize(modeName, max(12, height * 0.018), width * 0.9);
            text(modeName, width / 2, height * 0.72);
            // little "up" chevrons above the duck
@@ -949,20 +951,6 @@
            text('Loading...', width / 2, height / 2);
        }
 
-       function drawScenery() {
-           fill(34, 139, 34);
-           noStroke();
-           rect(0, height - 50, width, 50);
-           imageMode(CENTER);
-           image(sunImg, width * 0.9, height * 0.15, width * 0.1, width * 0.1);
-       }
-
-       function drawNightScenery() {
-           fill(10, 12, 20);
-           noStroke();
-           rect(0, height - 50, width, 50);
-       }
-
        // --- STACKED mode visuals ---
        // Ping-pong the hue across a synthwave band (cyan -> blue -> purple ->
        // magenta). A full 0-360 cycle would swing through olive/brown, which
@@ -981,40 +969,8 @@
            return c;
        }
 
-       function drawStackedBackground() {
-           if (gameState === 'play') stackedHue = (stackedHue + 1.1) % 360;
-
-           push();
-           colorMode(HSB, 360, 100, 100, 255);
-           noStroke();
-           // vertical gradient between two cycling hues
-           let bands = 24;
-           let bandH = height / bands;
-           for (let i = 0; i < bands; i++) {
-               let t = i / (bands - 1);
-               // deep + saturated so the neon foreground stays readable
-               fill(stackedHueAt(stackedHue + t * 70), 92, lerp(16, 40, t));
-               rect(0, i * bandH - 1, width, bandH + 2);
-           }
-           pop();
-
-           // beat pulse
-           let beat = (frameCount % 40) / 40;
-           if (beat < 0.18 && gameState === 'play') {
-               push();
-               noStroke();
-               fill(255, 255, 255, map(beat, 0, 0.18, 45, 0));
-               rect(0, 0, width, height);
-               pop();
-           }
-       }
-
        function drawStackedScenery() {
-           for (let s of stackedShapes) {
-               if (gameState === 'play') s.update();
-               s.show();
-           }
-           // neon floor strip
+           // neon floor strip (the shapes now live in the pixel backdrop)
            push();
            noStroke();
            fill(stackedColor(180, 90, 60));
@@ -1035,88 +991,408 @@
            return abs(v - floor(v));
        }
 
-       function drawThemeTo(g, theme) {
-           const W = g.width, H = g.height;
+       // =====================================================================
+       // 8-BIT BACKDROPS (added in 1.15.0)
+       //
+       // All background art is real pixel art: each piece is drawn ONCE into a
+       // tiny offscreen buffer using whole-pixel rects only, then scaled up
+       // with image smoothing OFF so every pixel becomes a crisp square block.
+       //
+       // Positions come from a scroll distance plus hash01(), not from stored
+       // objects, so the same function draws the in-game backdrop and the menu
+       // backdrop and nothing needs resetting.
+       //
+       //   Day      -> pixel world tour: landmarks drift by behind the pipes
+       //   Midnight -> pixel city skyline over a harbor, two parallax layers
+       //   STACKED  -> synthwave chaos: striped sun, grid floor, glyphs, glitches
+       // =====================================================================
+       let LANDMARKS = [];
+       let cityFar = null, cityNear = null;
+       let stackBuf = null;
+       let bgScroll = 0;
+
+       // Small deterministic PRNG so building the art never disturbs the
+       // game's own random() sequence.
+       function mulberry32(a) {
+           return function () {
+               a |= 0; a = a + 0x6D2B79F5 | 0;
+               let t = Math.imul(a ^ a >>> 15, 1 | a);
+               t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+               return ((t ^ t >>> 14) >>> 0) / 4294967296;
+           };
+       }
+
+       function makeSprite(w, h, drawFn) {
+           const g = createGraphics(w, h);
+           g.pixelDensity(1);
+           g.noSmooth();
+           g.noStroke();
+           g.clear();
+           drawFn(g);
+           return g;
+       }
+       function px(g, x, y, w, h, c) { g.fill(c); g.rect(x, y, w, h); }
+       // Stair-stepped triangle (pixel art never uses anti-aliased edges).
+       function pxTri(g, cx, top, bottom, halfBase, c, cShade) {
+           for (let y = top; y <= bottom; y++) {
+               const hw = round(((y - top) / max(1, bottom - top)) * halfBase);
+               px(g, cx - hw, y, hw + 1, 1, c);
+               px(g, cx + 1, y, hw, 1, cShade || c);
+           }
+       }
+
+       function buildPixelArt() {
+           LANDMARKS = [];
+           // Golden Gate (nod to San Francisco)
+           LANDMARKS.push(makeSprite(70, 54, (g) => {
+               const tc = '#d9775a', dk = '#b35a42', lt = '#eaa68f';
+               for (let x = 18; x <= 53; x += 3) {
+                   const cy = 6 + round(24 * (1 - pow((x - 35.5) / 18.5, 2)));
+                   px(g, x, cy, 1, 38 - cy, lt);
+               }
+               for (let x = 0; x < 70; x++) {
+                   let cy;
+                   if (x < 16) cy = 6 + round((16 - x) / 16 * 30);
+                   else if (x > 55) cy = 6 + round((x - 55) / 14 * 30);
+                   else cy = 6 + round(24 * (1 - pow((x - 35.5) / 19.5, 2)));
+                   px(g, x, cy, 1, 1, tc);
+               }
+               px(g, 0, 38, 70, 3, dk);
+               px(g, 14, 4, 5, 50, tc); px(g, 52, 4, 5, 50, tc);
+               px(g, 17, 4, 2, 50, dk); px(g, 55, 4, 2, 50, dk);
+               px(g, 13, 14, 7, 2, dk); px(g, 51, 14, 7, 2, dk);
+               px(g, 13, 26, 7, 2, dk); px(g, 51, 26, 7, 2, dk);
+           }));
+           // Eiffel Tower
+           LANDMARKS.push(makeSprite(31, 68, (g) => {
+               const c = '#8e95bd', dk = '#6c74a2';
+               px(g, 15, 0, 1, 5, dk);
+               for (let y = 5; y < 68; y++) {
+                   const hw = round(1 + pow((y - 5) / 62, 2.3) * 14);
+                   px(g, 15 - hw, y, hw * 2 + 1, 1, (y % 4 === 0) ? dk : c);
+               }
+               px(g, 9, 24, 13, 2, dk); px(g, 5, 42, 21, 2, dk);
+               g.erase();
+               for (let y = 52; y < 68; y++) {
+                   const a = round(sqrt(max(0, 1 - pow((68 - y) / 16, 2))) * 7);
+                   g.rect(15 - a, y, a * 2 + 1, 1);
+               }
+               g.noErase();
+           }));
+           // Pyramids
+           LANDMARKS.push(makeSprite(70, 36, (g) => {
+               pxTri(g, 24, 2, 35, 23, '#ecd29c', '#d6b678');
+               pxTri(g, 53, 14, 35, 16, '#e4c78d', '#cdad70');
+           }));
+           // Taj Mahal
+           LANDMARKS.push(makeSprite(52, 46, (g) => {
+               const w = '#f6efe5', s = '#d8cbb8';
+               px(g, 3, 12, 3, 30, w); px(g, 2, 10, 5, 2, s);
+               px(g, 46, 12, 3, 30, w); px(g, 45, 10, 5, 2, s);
+               px(g, 0, 40, 52, 6, '#ece2d3');
+               px(g, 11, 25, 30, 15, w);
+               px(g, 23, 30, 6, 10, s); px(g, 24, 29, 4, 1, s);
+               for (let y = 7; y <= 25; y++) {
+                   const dy = y - 17, hw = round(sqrt(max(0, 81 - dy * dy)));
+                   px(g, 26 - hw, y, hw * 2 + 1, 1, y < 10 ? s : w);
+               }
+               px(g, 26, 1, 1, 6, s);
+               for (let y = 20; y <= 25; y++) {
+                   const hw = round(sqrt(max(0, 16 - pow(y - 24, 2))));
+                   px(g, 14 - hw, y, hw * 2 + 1, 1, w); px(g, 38 - hw, y, hw * 2 + 1, 1, w);
+               }
+           }));
+           // Statue of Liberty
+           LANDMARKS.push(makeSprite(24, 64, (g) => {
+               const gr = '#7fbfa8', dg = '#5f9e88';
+               px(g, 2, 42, 20, 3, '#b9ad99'); px(g, 4, 45, 16, 19, '#cfc3b0');
+               px(g, 6, 50, 12, 1, '#b9ad99');
+               for (let y = 20; y < 42; y++) {
+                   const hw = 3 + round((y - 20) / 22 * 3);
+                   px(g, 12 - hw, y, hw * 2, 1, gr);
+               }
+               px(g, 6, 24, 3, 6, dg);
+               px(g, 9, 13, 6, 7, gr);
+               px(g, 8, 11, 1, 2, gr); px(g, 11, 10, 1, 3, gr); px(g, 13, 10, 1, 3, gr); px(g, 15, 11, 1, 2, gr);
+               px(g, 16, 4, 3, 17, gr);
+               px(g, 15, 2, 5, 2, '#d9a43a'); px(g, 16, 0, 3, 2, '#f2c75b');
+           }));
+           // Colosseum
+           LANDMARKS.push(makeSprite(62, 32, (g) => {
+               px(g, 0, 4, 62, 28, '#e0b98f');
+               px(g, 0, 4, 62, 2, '#c99d72');
+               for (const yy of [9, 17, 25]) {
+                   for (let x = 3; x < 58; x += 7) {
+                       px(g, x, yy + 1, 4, yy === 25 ? 7 : 5, '#b88b60');
+                       px(g, x + 1, yy, 2, 1, '#b88b60');
+                   }
+               }
+               g.erase(); g.rect(48, 0, 14, 8); g.rect(55, 8, 7, 5); g.rect(42, 0, 6, 4); g.noErase();
+           }));
+           // Big Ben
+           LANDMARKS.push(makeSprite(36, 70, (g) => {
+               const c = '#cfa86c', dk = '#ac8549';
+               pxTri(g, 12, 0, 14, 7, '#b88f55');
+               px(g, 6, 15, 13, 55, c); px(g, 17, 15, 2, 55, dk);
+               px(g, 8, 19, 9, 9, '#fbf6ea'); px(g, 12, 21, 1, 3, '#5b4326'); px(g, 12, 23, 3, 1, '#5b4326');
+               for (let y = 34; y < 68; y += 5) px(g, 10, y, 4, 3, dk);
+               px(g, 19, 46, 17, 24, '#d8b77f');
+               for (let x = 21; x < 35; x += 4) px(g, x, 50, 2, 4, dk);
+               for (let x = 21; x < 35; x += 4) px(g, x, 58, 2, 4, dk);
+           }));
+           // Sydney Opera House
+           LANDMARKS.push(makeSprite(56, 26, (g) => {
+               px(g, 0, 21, 56, 5, '#d1dbe4');
+               const shells = [[4, 4, 16], [18, 2, 18], [34, 9, 13]];
+               for (const [x0, top, sw] of shells) {
+                   for (let y = top; y < 21; y++) {
+                       const t = (y - top) / (21 - top);
+                       const start = x0 + round((1 - t) * sw * 0.85);
+                       px(g, start, y, x0 + sw - start, 1, '#fbfbf8');
+                       px(g, start, y, 1, 1, '#b7c6d4');
+                   }
+               }
+           }));
+
+           cityFar = makeCityTile(150, 60, 7, '#111a3a', '#131d40', '#4a5590', 0.12);
+           cityNear = makeCityTile(130, 78, 21, '#1a2552', '#1e2a5c', '#f8d66d', 0.28);
+       }
+
+       function makeCityTile(tw, th, seed, body, body2, lit, litP) {
+           const rnd = mulberry32(seed);
+           return makeSprite(tw, th, (g) => {
+               let x = 0;
+               while (x < tw) {
+                   const w = min(7 + floor(rnd() * 13), tw - x);
+                   const bh = 16 + floor(rnd() * (th - 22));
+                   const col = rnd() < 0.5 ? body : body2;
+                   px(g, x, th - bh, w, bh, col);
+                   if (rnd() < 0.3 && w > 4) px(g, x + floor(w / 2), th - bh - 6, 1, 6, col);
+                   if (rnd() < 0.3 && w > 6) px(g, x + 2, th - bh - 3, w - 4, 3, col);
+                   for (let wy = th - bh + 3; wy < th - 2; wy += 3) {
+                       for (let wx = x + 2; wx < x + w - 1; wx += 3) {
+                           if (rnd() < litP) px(g, wx, wy, 1, 1, lit);
+                       }
+                   }
+                   x += w + (rnd() < 0.35 ? 1 : 0);
+               }
+           });
+       }
+
+       function pxScale(g) { return max(3, round(g.height / 170)); }
+
+       // Draw the backdrop for `theme` onto `g` (the main canvas wrapper MAIN,
+       // or a menu buffer). `scroll` is how far the world has moved; `t` is a
+       // frame counter for animation.
+       function drawBackdrop(g, theme, scroll, t, isMenu) {
+           const ctx = g.drawingContext;
+           const smooth0 = ctx.imageSmoothingEnabled;
            g.push();
            g.noStroke();
-
-           if (theme === 'day') {
-               g.background(135, 206, 235);
-               g.imageMode(CENTER);
-               if (sunImg) g.image(sunImg, W * 0.86, H * 0.16, W * 0.085, W * 0.085);
-               g.imageMode(CORNER);
-               if (dayCloudImgs.length) {
-                   let img = dayCloudImgs[0];
-                   for (let i = 0; i < 4; i++) {
-                       let cw = W * (0.11 + 0.03 * hash01(i + 1));
-                       let span = W + cw * 2;
-                       let x = W + cw - ((frameCount * 0.3 + i * span / 4) % span);
-                       let y = H * (0.06 + 0.07 * i);
-                       g.image(img, x, y, cw, cw * (img.height / img.width));
-                   }
-               }
-               g.fill(34, 139, 34);
-               g.rect(0, H - 50, W, 50);
-
-           } else if (theme === 'night') {
-               g.background(8, 12, 24);
-               g.imageMode(CENTER);
-               if (moonImg) g.image(moonImg, W * 0.86, H * 0.16, W * 0.085, W * 0.085);
-               g.imageMode(CORNER);
-               if (nightCloudImgs.length) {
-                   for (let i = 0; i < 4; i++) {
-                       let img = nightCloudImgs[i % nightCloudImgs.length];
-                       let cw = W * (0.12 + 0.04 * hash01(i + 7));
-                       let span = W + cw * 2;
-                       let x = W + cw - ((frameCount * 0.45 + i * span / 4) % span);
-                       let y = H * (0.05 + 0.07 * i);
-                       g.image(img, x, y, cw, cw * (img.height / img.width));
-                   }
-               }
-               g.stroke(190, 200, 255, 130);
-               g.strokeWeight(2);
-               for (let i = 0; i < 70; i++) {
-                   let x = (hash01(i + 21) * W + frameCount * 6) % W;
-                   let y = (hash01(i + 55) * H + frameCount * 15) % H;
-                   g.line(x, y, x + 4, y + 16);
-               }
-               g.noStroke();
-               g.fill(10, 12, 20);
-               g.rect(0, H - 50, W, 50);
-
-           } else {
-               g.colorMode(HSB, 360, 100, 100, 255);
-               let bands = 24, bandH = H / bands;
-               for (let i = 0; i < bands; i++) {
-                   let t = i / (bands - 1);
-                   g.fill(stackedHueAt(frameCount * 1.1 + t * 70), 92, lerp(16, 40, t));
-                   g.rect(0, i * bandH - 1, W, bandH + 2);
-               }
-               g.noFill();
-               g.strokeWeight(2);
-               for (let i = 0; i < 12; i++) {
-                   let size = H * (0.03 + 0.07 * hash01(i + 3));
-                   let span = W + size * 2;
-                   let x = W + size - ((frameCount * (0.5 + hash01(i + 9) * 1.6) + i * span / 12) % span);
-                   let y = H * (0.06 + 0.8 * hash01(i + 31));
-                   g.stroke(stackedHueAt(frameCount * 1.1 + hash01(i + 5) * 360), 80, 100, 110);
-                   g.push();
-                   g.translate(x, y);
-                   g.rotate(frameCount * 0.01 + i);
-                   let kind = floor(hash01(i + 13) * 3);
-                   if (kind === 0) g.ellipse(0, 0, size);
-                   else if (kind === 1) g.triangle(0, -size / 2, size / 2, size / 2, -size / 2, size / 2);
-                   else { g.rectMode(CENTER); g.rect(0, 0, size, size, 4); }
-                   g.pop();
-               }
-               g.noStroke();
-               g.fill(stackedHueAt(frameCount * 1.1 + 180), 90, 60);
-               g.rect(0, H - 40, W, 40);
-               g.fill(stackedHueAt(frameCount * 1.1 + 180), 80, 100, 200);
-               g.rect(0, H - 44, W, 4);
-               g.colorMode(RGB, 255);
-           }
+           ctx.imageSmoothingEnabled = false;
+           if (theme === 'day') drawDayBackdrop(g, scroll, t, isMenu);
+           else if (theme === 'night') drawNightBackdrop(g, scroll, t, isMenu);
+           else drawStackedBackdrop(g, t);
+           ctx.imageSmoothingEnabled = smooth0;
            g.pop();
+       }
+
+       function drawDayBackdrop(g, scroll, t, isMenu) {
+           const W = g.width, H = g.height, S = pxScale(g), ground = H - 50;
+           const sky = [[118, 196, 232], [127, 202, 236], [138, 209, 239], [151, 216, 242], [165, 223, 245]];
+           const band = ceil(ground / sky.length);
+           for (let i = 0; i < sky.length; i++) { g.fill(sky[i][0], sky[i][1], sky[i][2]); g.rect(0, i * band, W, band + 1); }
+           g.imageMode(CORNER);
+           if (sunImg) g.image(sunImg, W * 0.86 - W * 0.05, H * 0.15 - W * 0.05, W * 0.1, W * 0.1);
+           if (isMenu && dayCloudImgs.length) {
+               const img = dayCloudImgs[0];
+               for (let i = 0; i < 3; i++) {
+                   const cw = W * (0.12 + 0.03 * hash01(i + 1)), span = W + cw * 2;
+                   const x = W + cw - ((t * 0.3 + i * span / 3) % span);
+                   g.image(img, x, H * (0.06 + 0.08 * i), cw, cw * (img.height / img.width));
+               }
+           }
+           // landmarks: one per slot, some slots empty, random order
+           if (LANDMARKS.length) {
+               const slot = max(W * 0.8, 84 * S);
+               const a0 = g.drawingContext.globalAlpha;
+               g.drawingContext.globalAlpha = a0 * 0.6;
+               const first = floor(scroll / slot) - 1, last = floor((scroll + W) / slot) + 1;
+               for (let i = first; i <= last; i++) {
+                   if (hash01(i * 3.17 + 11) < 0.18) continue;
+                   const spr = LANDMARKS[floor(hash01(i * 5.71 + 3) * LANDMARKS.length)];
+                   const w = spr.width * S, h = spr.height * S;
+                   let x = i * slot - scroll + hash01(i * 9.1 + 2) * max(0, slot - w) * 0.8;
+                   x = round(x / S) * S;
+                   g.image(spr, x, ground - h, w, h);
+               }
+               g.drawingContext.globalAlpha = a0;
+           }
+           // pixel grass
+           g.fill(34, 139, 34); g.rect(0, ground, W, H - ground);
+           const off = round((scroll * 1.5) % (S * 4) / S) * S;
+           for (let x = -off; x < W; x += S * 4) {
+               g.fill(52, 168, 52); g.rect(x, ground, S * 2, S);
+               g.fill(26, 112, 26); g.rect(x + S * 2, ground + S * 3, S, S);
+           }
+       }
+
+       function drawNightBackdrop(g, scroll, t, isMenu) {
+           const W = g.width, H = g.height, S = pxScale(g), horizon = H - 50;
+           const sky = [[5, 8, 20], [8, 12, 28], [11, 17, 38], [15, 22, 50], [19, 28, 62]];
+           const band = ceil(horizon / sky.length);
+           for (let i = 0; i < sky.length; i++) { g.fill(sky[i][0], sky[i][1], sky[i][2]); g.rect(0, i * band, W, band + 1); }
+           for (let i = 0; i < 46; i++) {
+               const x = floor(hash01(i + 101) * W / S) * S, y = floor(hash01(i + 202) * horizon * 0.5 / S) * S;
+               const on = hash01(i * 1.3 + floor(t / 24)) > 0.2;
+               g.fill(225, 230, 255, on ? 230 : 70); g.rect(x, y, S, S);
+           }
+           g.imageMode(CORNER);
+           if (moonImg) g.image(moonImg, W * 0.86 - W * 0.05, H * 0.14 - W * 0.05, W * 0.1, W * 0.1);
+           if (isMenu && nightCloudImgs.length) {
+               for (let i = 0; i < 2; i++) {
+                   const img = nightCloudImgs[i % nightCloudImgs.length];
+                   const cw = W * 0.14, span = W + cw * 2;
+                   const x = W + cw - ((t * 0.45 + i * span / 2) % span);
+                   g.image(img, x, H * (0.07 + 0.09 * i), cw, cw * (img.height / img.width));
+               }
+           }
+           for (const [tile, k] of [[cityFar, 0.12], [cityNear, 0.3]]) {
+               if (!tile) continue;
+               const tw = tile.width * S, th = tile.height * S;
+               let x = -round(((scroll * k) % tw) / S) * S;
+               for (; x < W; x += tw) g.image(tile, x, horizon - th, tw, th);
+           }
+           // harbor water with drifting reflections
+           g.fill(8, 14, 36); g.rect(0, horizon, W, H - horizon);
+           g.fill(34, 50, 104); g.rect(0, horizon, W, S);
+           const rows = max(1, floor((H - horizon) / S) - 2);
+           for (let i = 0; i < 22; i++) {
+               const len = S * (2 + floor(hash01(i + 17) * 4));
+               const x = round((((hash01(i + 7) * (W + 60)) - (scroll * 0.3 + t * 0.2 * (0.5 + hash01(i + 9)))) % (W + 60) + (W + 60)) % (W + 60) / S) * S - 30;
+               const y = horizon + S * 2 + floor(hash01(i + 13) * rows) * S;
+               if (i % 3 === 0) g.fill(248, 214, 109, 110); else g.fill(40, 58, 120);
+               g.rect(x, y, len, S);
+           }
+       }
+
+       // 6 pixel glyphs that float through STACKED
+       const GLYPHS = [
+           ['..#..', '.###.', '#####', '.###.', '..#..'],
+           ['..#..', '..#..', '#####', '..#..', '..#..'],
+           ['...##', '..##.', '.####', '..##.', '.##..', '##...'],
+           ['..#..', '.#.#.', '#...#', '.#.#.', '..#..'],
+           ['#...#', '.#.#.', '..#..', '.#.#.', '#...#'],
+           ['.##.##.', '#######', '#######', '.#####.', '..###..', '...#...']
+       ];
+
+       function drawStackedBackdrop(g, t) {
+           const SS = max(3, round(g.height / 210));
+           const lw = ceil(g.width / SS), lh = ceil(g.height / SS);
+           if (!stackBuf || stackBuf.width !== lw || stackBuf.height !== lh) {
+               stackBuf = createGraphics(lw, lh);
+               stackBuf.pixelDensity(1);
+               stackBuf.noSmooth();
+           }
+           const b = stackBuf;
+           b.push();
+           b.noStroke();
+           b.colorMode(HSB, 360, 100, 100, 255);
+           const hz = floor(lh * 0.66);
+           // chunky banded sky
+           for (let y = 0; y < hz; y += 3) {
+               const k = y / hz;
+               b.fill(stackedHueAt(t * 1.1 + k * 90), 88, 12 + k * 32);
+               b.rect(0, y, lw, 3);
+           }
+           // twinkling stars
+           for (let i = 0; i < 46; i++) {
+               if ((floor(t / 6) + i) % 5 === 0) continue;
+               b.fill(0, 0, 100, 140 + 100 * hash01(i + 77));
+               b.rect(floor(hash01(i + 300) * lw), floor(hash01(i + 400) * hz * 0.75), 1, 1);
+           }
+           // shooting star every ~4 seconds
+           const st = t % 240;
+           if (st < 40) {
+               const sx = floor(lw * 0.9 - st * 2.2), sy = floor(hz * 0.15 + st * 0.7);
+               for (let k = 0; k < 7; k++) { b.fill(55, 30, 100, 255 - k * 34); b.rect(sx + k, sy - floor(k * 0.35), 1, 1); }
+           }
+           // giant striped synthwave sun
+           const r = floor(min(lw * 0.34, hz * 0.42)), cx = floor(lw * 0.64), cy = hz - floor(r * 0.25);
+           for (let dy = -r; dy <= r; dy++) {
+               const y = cy + dy;
+               if (y >= hz) break;
+               const k = (dy + r) / (r * 2);
+               if (dy > -r * 0.35 && ((y + floor(t * 0.2)) % 6) < 1 + floor(k * 4)) continue;
+               const hw = floor(sqrt(max(0, r * r - dy * dy)));
+               b.fill((50 - k * 90 + 360) % 360, 85, 100);
+               b.rect(cx - hw, y, hw * 2 + 1, 1);
+           }
+           // stepped mountain silhouettes
+           for (let m = 0; m < 6; m++) {
+               const mx = floor(hash01(m + 600) * lw), mh = 5 + floor(hash01(m + 700) * 13);
+               for (let row = 0; row <= mh; row++) {
+                   b.fill(275, 75, 10 + row);
+                   b.rect(mx - row, hz - mh + row, row * 2 + 1, 1);
+               }
+           }
+           // neon grid floor rushing toward the player
+           b.fill(285, 90, 9);
+           b.rect(0, hz, lw, lh - hz);
+           const gh = lh - hz, phase = (t * 0.03) % 1, gridHue = stackedHueAt(t * 1.1 + 180);
+           b.fill(gridHue, 75, 100);
+           for (let k = 0; k < 9; k++) {
+               const z = (k + phase) / 9;
+               b.rect(0, hz + floor(z * z * gh), lw, 1);
+           }
+           b.rect(0, hz, lw, 1);
+           b.stroke(gridHue, 75, 100);
+           b.strokeWeight(1);
+           for (let i = -9; i <= 9; i++) b.line(lw / 2 + i * 2, hz, lw / 2 + i * lw * 0.16, lh);
+           b.noStroke();
+           // floating glyphs
+           for (let i = 0; i < 16; i++) {
+               const gl = GLYPHS[i % GLYPHS.length];
+               const s = hash01(i + 950) < 0.35 ? 2 : 1;
+               const span = lw + 30;
+               const x = floor(span - ((t * (0.15 + hash01(i + 800) * 0.7) + hash01(i + 900) * span) % span)) - 15;
+               const y = floor(hash01(i + 1000) * hz * 0.92) + floor(sin(t * 0.05 + i) * 2);
+               b.fill(stackedHueAt(t * 2 + i * 47), 70, 100, 210);
+               for (let ry = 0; ry < gl.length; ry++) {
+                   for (let rx = 0; rx < gl[ry].length; rx++) {
+                       if (gl[ry][rx] === '#') b.rect(x + rx * s, y + ry * s, s, s);
+                   }
+               }
+           }
+           // glitch: every ~3s, slice and shift strips for a few frames
+           if (t % 190 < 7) {
+               for (let j = 0; j < 5; j++) {
+                   const y = floor(hash01(t + j * 13) * lh), h = 1 + floor(hash01(t + j * 7) * 5);
+                   const dx = floor((hash01(t + j * 29) - 0.5) * 16);
+                   b.copy(b, 0, y, lw, h, dx, y, lw, h);
+               }
+           }
+           // CRT scanlines
+           b.fill(0, 0, 0, 45);
+           for (let y = 1; y < lh; y += 2) b.rect(0, y, lw, 1);
+           b.pop();
+           g.imageMode(CORNER);
+           g.image(b, 0, 0, lw * SS, lh * SS);
+       }
+
+       // Lets drawBackdrop() target the main canvas with the same calls it uses
+       // on offscreen buffers.
+       const MAIN = {
+           get width() { return width; }, get height() { return height; },
+           get drawingContext() { return drawingContext; },
+           push: () => push(), pop: () => pop(),
+           fill: (...a) => fill(...a), noStroke: () => noStroke(),
+           rect: (...a) => rect(...a), image: (...a) => image(...a),
+           imageMode: (m) => imageMode(m)
+       };
+
+       function drawThemeTo(g, theme) {
+           drawBackdrop(g, theme, frameCount * 1.2, frameCount, true);
        }
 
        function drawMenuBackground() {
@@ -1621,6 +1897,7 @@
            if (shieldGraceFrames > 0) shieldGraceFrames--;
 
            let diff = modeDifficulty();
+           bgScroll += diff.speed * 0.3;
            // While a laser is telegraphing/firing, hold off on new pipes. That
            // keeps the corridor the player must thread through predictable, and
            // reads as a deliberate breather in the pipe rhythm.
@@ -1788,6 +2065,7 @@
                    if (duxTapCount === 5) {
                        starMode = !starMode;
                        if (starMode) launchConfetti(width / 2, height / 2, 200);
+                       showToast(starMode ? 'RAINBOW DUX! 1.5x SPEED' : 'Rainbow Dux off');
                        duxTapCount = 0;
                    }
                }
@@ -1947,15 +2225,12 @@
            score = 0;
            simAcc = 0;
            simFrame = 0;
+           bgScroll = random(0, 5000);
            bird.reset();
            pipes.push(new Pipe(null));
            clouds = [];
            for (let i = 0; i < 3; i++) {
                clouds.push(new Cloud(random(width * 0.2, width * 1.3), random(height * 0.05, height * 0.25)));
-           }
-           if (stackedMode) {
-               stackedShapes = [];
-               for (let i = 0; i < 14; i++) stackedShapes.push(new StackedShape());
            }
        }
 
