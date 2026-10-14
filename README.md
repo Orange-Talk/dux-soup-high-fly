@@ -159,6 +159,11 @@ Everything is in `index.html`, top to bottom:
 - **Mobile first.** Size things relative to `width`/`height`, use
   `fitTextSize()` for text that could be wide, keep buttons at least 42px tall.
 - **Bump the version on every deploy** or the deploy script will stop you.
+- **Keep `"**/.*/**"` in `firebase.json`'s ignore list.** Firebase's default
+  `"**/.*"` hides dot-files but not the contents of the `.git` folder, so
+  without it every deploy tries to publish the git internals. A correct deploy
+  uploads 15 files: `index.html`, the 8 `assets/`, `og-image.jpg`, 4 icons and
+  `manifest.webmanifest`.
 
 ---
 
