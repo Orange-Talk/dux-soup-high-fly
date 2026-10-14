@@ -11,6 +11,14 @@ Rules (enforced by `scripts/check.sh`):
 
 ---
 
+## [1.15.2] - 2026-10-14
+
+### Fixed
+- Put the duck back to its original drawn size. In 1.15.1 it was drawn 30%
+  bigger than its hitbox, so it could visibly overlap a pipe and survive,
+  which looked like a glitch. The bold outline stays, so it is still easy to
+  see, and what you see matches what you hit.
+
 ## [1.15.1] - 2026-10-14
 
 ### Fixed

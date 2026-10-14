@@ -316,7 +316,7 @@
 
 <script>
        // Your p5.js game code
-       const DEPLOY_VERSION = '1.15.1';
+       const DEPLOY_VERSION = '1.15.2';
        const SHARE_URL = 'https://highflygame-1ac8f.web.app/';
        // p5 drops the font name straight into the canvas font string. Unquoted,
        // "Press Start 2P" is invalid CSS (a name part can't start with a
@@ -388,7 +388,9 @@
        // down.
        const SIM_STEP_MS = 1000 / 60;
        const STAR_SPEED = 1.5;
-       const DUCK_DRAW_SCALE = 1.3;
+       // Keep at 1: the drawn duck must match its hitbox, or it can visibly
+       // overlap a pipe and survive, which feels like a glitch.
+       const DUCK_DRAW_SCALE = 1;
        let simAcc = 0;
        let simFrame = 0;
 
@@ -2320,8 +2322,6 @@
                    scale(2 - squashY, squashY);
                }
 
-               // Drawn 30% larger than its hitbox so it reads on a phone; the
-               // collision size (this.size) is unchanged.
                const ds = this.size * DUCK_DRAW_SCALE;
                drawDuckOutline(imgToShow, ds);
                if (starMode) {
