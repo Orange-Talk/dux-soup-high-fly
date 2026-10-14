@@ -19,7 +19,10 @@ echo "High Fly pre-flight checks"
 for f in index.html firebase.json .firebaserc og-image.jpg apple-touch-icon.png \
          favicon-32.png icon-192.png icon-512.png manifest.webmanifest CHANGELOG.md \
          assets/dux.png assets/dux-magenta.png assets/title.png assets/sun.png \
-         assets/moon.png assets/cloud-day.png assets/cloud-night-1.png assets/cloud-night-2.png; do
+         assets/moon.png assets/cloud-day.png assets/cloud-night-1.png assets/cloud-night-2.png \
+         assets/skins/solid-day.png assets/skins/solid-magenta.png assets/skins/bold-day.png \
+         assets/skins/bold-magenta.png assets/skins/soft-day.png assets/skins/soft-magenta.png \
+         assets/skins/pixel-day.png assets/skins/pixel-magenta.png; do
   [ -f "$f" ] || bad "missing file: $f"
 done
 [ $fail -eq 0 ] && ok "all required files present"
