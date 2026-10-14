@@ -1,5 +1,8 @@
 # Dux-Soup High Fly — handoff notes
 
+> Day-to-day workflow (making changes, versioning, deploying) lives in
+> README.md. This file covers ownership, data and security.
+
 A small browser game (Flappy-Bird style, flying the Dux-Soup duck) intended as a
 hidden easter egg inside the Dux-Soup platform.
 
@@ -13,10 +16,11 @@ Two things, and nothing else:
 
 | Path | Size | What it is |
 |------|------|------------|
-| `index.html` | ~76 KB | The entire game — markup, styles and all game code in one file |
+| `index.html` | ~100 KB | The entire game — markup, styles and all game code in one file |
 | `assets/` | ~368 KB | 8 PNGs (duck, magenta duck, title, sun, moon, 3 clouds) |
+| `og-image.jpg`, icons, `manifest.webmanifest` | ~230 KB | Link-preview card and home-screen icons (added in 1.14.0) |
 
-**~440 KB total. Fully static.** No build step, no bundler, no server-side code,
+**~700 KB total. Fully static.** No build step, no bundler, no server-side code,
 no npm install. Copy those two things onto any web server and the game runs.
 
 `firebase.json` and `.firebaserc` are only needed if you keep deploying to
@@ -45,7 +49,7 @@ Dux-Soup company account:
 |-------|----------|-------|
 | Source code | GitHub `Orange-Talk/dux-soup-high-fly` | Currently **public** |
 | Hosting | Firebase Hosting, project `highflygame-1ac8f` | serves the `.web.app` URL |
-| Leaderboard data | Cloud Firestore, same project | day / midnight / rush boards |
+| Leaderboard data | Cloud Firestore, same project | day / midnight / stacked boards |
 | Player sign-in | Firebase Anonymous Auth, same project | no accounts, no personal data |
 
 ### ⚠️ The main decision before launch
@@ -117,8 +121,11 @@ Scores live at these Firestore document paths:
 ```
 artifacts/highflygame-1ac8f/public/data/leaderboard/day_mode
 artifacts/highflygame-1ac8f/public/data/leaderboard/night_mode
-artifacts/highflygame-1ac8f/public/data/leaderboard/rush_mode
+artifacts/highflygame-1ac8f/public/data/leaderboard/stacked_mode
 ```
+
+(An older `rush_mode` document may also exist from before the RUSH to STACKED
+rename in 1.13.0. The game no longer reads it.)
 
 Each document holds a single `scores` array of up to 20 entries:
 
@@ -169,13 +176,10 @@ python3 -m http.server 8765
 # then open http://localhost:8765
 ```
 
-Deploying to the current Firebase project (requires access to it):
-
-```bash
-firebase deploy --only hosting
-```
+Deploying: use `bash scripts/deploy.sh` from Google Cloud Shell. The full,
+step-by-step process (versioning, checks, deploy, rollback) is in README.md.
 
 The version number shown in the corner of the menu comes from `DEPLOY_VERSION`
-near the top of the game script — bump it whenever you deploy so it is obvious
-which build is live. `firebase.json` sets the HTML to `no-store` so players
-always get the newest build rather than an hour-old cached copy.
+near the top of the game script and must match the newest CHANGELOG.md entry.
+`firebase.json` sets the HTML to `no-store` so players always get the newest
+build rather than an hour-old cached copy.

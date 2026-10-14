@@ -4,7 +4,13 @@
     "ignore": [
       "firebase.json",
       "**/.*",
-      "**/node_modules/**"
+      "**/node_modules/**",
+      "README.md",
+      "CHANGELOG.md",
+      "HANDOFF.md",
+      "CLAUDE.md",
+      "scripts/**",
+      "Duxsoupgame prev builds/**"
     ],
     "headers": [
       {
@@ -31,6 +37,15 @@
           {
             "key": "Cache-Control",
             "value": "public, max-age=604800"
+          }
+        ]
+      },
+      {
+        "source": "/manifest.webmanifest",
+        "headers": [
+          {
+            "key": "Content-Type",
+            "value": "application/manifest+json"
           }
         ]
       }
