@@ -2,9 +2,43 @@
 <html lang="en">
 <head>
    <meta charset="UTF-8">
-   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
    <title>Dux-Soup High Fly</title>
+   <meta name="description" content="Tap to fly, dodge the pipes and top the leaderboard. A quick arcade game from Dux-Soup.">
+   <meta name="theme-color" content="#87ceeb">
+
+   <!-- Link previews (iMessage, WhatsApp, Slack, LinkedIn, X, Facebook).
+        Crawlers don't run JavaScript, so these must be plain tags with an
+        absolute image URL. -->
+   <link rel="canonical" href="https://highflygame-1ac8f.web.app/">
+   <meta property="og:type" content="website">
+   <meta property="og:site_name" content="Dux-Soup">
+   <meta property="og:url" content="https://highflygame-1ac8f.web.app/">
+   <meta property="og:title" content="Dux-Soup High Fly">
+   <meta property="og:description" content="Tap to fly, dodge the pipes and top the leaderboard. Can you beat my score?">
+   <meta property="og:image" content="https://highflygame-1ac8f.web.app/og-image.jpg">
+   <meta property="og:image:secure_url" content="https://highflygame-1ac8f.web.app/og-image.jpg">
+   <meta property="og:image:type" content="image/jpeg">
+   <meta property="og:image:width" content="1200">
+   <meta property="og:image:height" content="630">
+   <meta property="og:image:alt" content="Dux-Soup High Fly logo with the Dux-Soup duck flying between green pipes">
+   <meta name="twitter:card" content="summary_large_image">
+   <meta name="twitter:title" content="Dux-Soup High Fly">
+   <meta name="twitter:description" content="Tap to fly, dodge the pipes and top the leaderboard. Can you beat my score?">
+   <meta name="twitter:image" content="https://highflygame-1ac8f.web.app/og-image.jpg">
+
+   <!-- Icons + "Add to Home Screen" -->
+   <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png">
+   <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+   <link rel="manifest" href="/manifest.webmanifest">
+   <meta name="apple-mobile-web-app-capable" content="yes">
+   <meta name="mobile-web-app-capable" content="yes">
+   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+   <meta name="apple-mobile-web-app-title" content="High Fly">
+
    <script src="https://cdnjs.cloudflare.com/ajax/libs/p5.js/1.4.2/p5.min.js"></script>
+   <link rel="preconnect" href="https://fonts.googleapis.com">
+   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Inter:wght@400;700&display=swap" rel="stylesheet">
    <style>
        body, html {
@@ -17,12 +51,22 @@
            user-select: none;
            -webkit-user-select: none;
            -webkit-tap-highlight-color: transparent;
+           -webkit-touch-callout: none;
            background-color: #000;
+           /* Stop the page itself from scrolling, rubber-banding or
+              pull-to-refreshing while someone is tapping fast. */
+           overscroll-behavior: none;
+           touch-action: none;
+       }
+       body {
+           position: fixed;
+           inset: 0;
        }
        canvas {
            display: block;
            margin: 0;
            z-index: 0;
+           touch-action: none;
        }
        .pixel-font {
            font-family: 'Press Start 2P', cursive;
@@ -45,6 +89,7 @@
            justify-content: center;
            background: rgba(0, 0, 0, 0.55);
            z-index: 50;
+           touch-action: manipulation;
        }
        .modal-card {
            background: #1f2937;
@@ -55,6 +100,8 @@
            width: 92%;
            max-width: 24rem;
            text-align: center;
+           user-select: text;
+           -webkit-user-select: text;
        }
        .modal-title {
            font-size: 1.35rem;
@@ -80,7 +127,7 @@
            box-sizing: border-box;
            border: none;
            border-radius: 8px;
-           padding: 12px 16px;
+           padding: 14px 16px;
            font-family: 'Inter', sans-serif;
            font-weight: 700;
            font-size: 1rem;
@@ -91,6 +138,14 @@
        .btn-submit:hover { background: #2563eb; }
        .btn-start { background: #22c55e; }
        .btn-start:hover { background: #16a34a; }
+       .btn-skip {
+           background: transparent;
+           color: #9ca3af;
+           font-weight: 400;
+           margin-top: 10px;
+           padding: 10px 16px;
+       }
+       .btn-skip:hover { color: #e5e7eb; }
    </style>
 </head>
 <body>
@@ -101,11 +156,12 @@
            <p class="modal-text">Enter your name for the leaderboard:</p>
 
            <div id="input-container" class="hidden">
-                <input type="text" id="name-input" placeholder="Your Name" maxlength="10" autocomplete="off">
+                <input type="text" id="name-input" placeholder="Your Name" maxlength="10" autocomplete="off" enterkeyhint="done">
                 <button id="submit-score-btn" class="btn btn-submit">Submit</button>
            </div>
 
            <button id="show-keyboard-btn" class="btn btn-start">Tap to Enter Name</button>
+           <button id="skip-score-btn" class="btn btn-skip">Skip</button>
        </div>
    </div>
 
@@ -133,6 +189,7 @@
        const nameInput = document.getElementById('name-input');
        const submitScoreBtn = document.getElementById('submit-score-btn');
        const showKeyboardBtn = document.getElementById('show-keyboard-btn');
+       const skipScoreBtn = document.getElementById('skip-score-btn');
        const inputContainer = document.getElementById('input-container');
 
        let leaderboardDayRef, leaderboardNightRef, leaderboardStackedRef;
@@ -140,14 +197,34 @@
        let localLeaderboardNight = [];
        let localLeaderboardStacked = [];
        let newHighScore = null;
+       // Which boards have actually arrived from Firestore. A board that never
+       // loaded (slow or blocked network) looks empty, and writing to it would
+       // replace the real leaderboard with a single score - so we never offer
+       // a high-score entry for a board we haven't received.
+       const received = { day: false, night: false, stacked: false };
+       let submitting = false;
 
        const listForMode = (mode) =>
            mode === 'stacked' ? localLeaderboardStacked : (mode === 'night' ? localLeaderboardNight : localLeaderboardDay);
        const refForMode = (mode) =>
            mode === 'stacked' ? leaderboardStackedRef : (mode === 'night' ? leaderboardNightRef : leaderboardDayRef);
 
+       const closeModal = () => {
+           nameModal.classList.add('hidden');
+           nameModal.classList.remove('flex');
+           newHighScore = null;
+           nameInput.value = '';
+           nameInput.blur();
+           // Restore the buttons to the initial state for next time
+           inputContainer.classList.add('hidden');
+           showKeyboardBtn.classList.remove('hidden');
+           window.p5.resetGameAfterScoreSubmit();
+           window.p5.loop();
+       };
+
        const handleSubmit = async () => {
-           if (!newHighScore) return;
+           if (!newHighScore || submitting) return;
+           submitting = true;
            const name = nameInput.value.trim() || 'Anonymous';
            newHighScore.name = name;
            const mode = newHighScore.mode;
@@ -159,19 +236,13 @@
            } catch (error) {
                console.error("Error writing to leaderboard: ", error);
            }
-           nameModal.classList.add('hidden');
-           nameModal.classList.remove('flex');
-           newHighScore = null;
-           nameInput.value = '';
-           // Restore the buttons to the initial state for next time
-           inputContainer.classList.add('hidden');
-           showKeyboardBtn.classList.remove('hidden');
-           window.p5.resetGameAfterScoreSubmit();
-           window.p5.loop();
+           submitting = false;
+           closeModal();
        };
 
        const checkHighScore = (score, mode) => {
            if (score === 0) return false;
+           if (!received[mode]) return false;
            const relevantLeaderboard = listForMode(mode);
            const lowestScore = relevantLeaderboard.length > 0 ? relevantLeaderboard[relevantLeaderboard.length - 1].score : 0;
            if (score > lowestScore || relevantLeaderboard.length < 20) {
@@ -186,12 +257,12 @@
        window.checkHighScore = checkHighScore;
 
        function setupLeaderboardListeners() {
-           let dayDataReceived = false, nightDataReceived = false, stackedDataReceived = false, initialLoadSignaled = false;
+           let initialLoadSignaled = false;
            const push = () => {
                if (window.p5) window.p5.setLeaderboards(localLeaderboardDay, localLeaderboardNight, localLeaderboardStacked);
            };
            const signalReady = () => {
-               if (dayDataReceived && nightDataReceived && stackedDataReceived && !initialLoadSignaled) {
+               if (received.day && received.night && received.stacked && !initialLoadSignaled) {
                    initialLoadSignaled = true;
                    if (window.p5 && typeof window.p5.firebaseReady === 'function') {
                        window.p5.firebaseReady();
@@ -201,26 +272,26 @@
            leaderboardDayRef = doc(db, `artifacts/${appId}/public/data/leaderboard/day_mode`);
            onSnapshot(leaderboardDayRef, (doc) => {
                localLeaderboardDay = doc.exists() ? doc.data().scores || [] : [];
-               dayDataReceived = true;
+               received.day = true;
                push();
                signalReady();
            });
            leaderboardNightRef = doc(db, `artifacts/${appId}/public/data/leaderboard/night_mode`);
            onSnapshot(leaderboardNightRef, (doc) => {
                localLeaderboardNight = doc.exists() ? doc.data().scores || [] : [];
-               nightDataReceived = true;
+               received.night = true;
                push();
                signalReady();
            });
            leaderboardStackedRef = doc(db, `artifacts/${appId}/public/data/leaderboard/stacked_mode`);
            onSnapshot(leaderboardStackedRef, (doc) => {
                localLeaderboardStacked = doc.exists() ? doc.data().scores || [] : [];
-               stackedDataReceived = true;
+               received.stacked = true;
                push();
                signalReady();
            });
        }
-       
+
        // --- EVENT LISTENERS ---
        showKeyboardBtn.addEventListener('click', () => {
            showKeyboardBtn.classList.add('hidden');
@@ -229,10 +300,11 @@
        });
 
        submitScoreBtn.addEventListener('click', handleSubmit);
+       skipScoreBtn.addEventListener('click', () => { if (!submitting) closeModal(); });
        nameInput.addEventListener('keyup', (event) => {
            if (event.key === 'Enter') handleSubmit();
        });
-       
+
        onAuthStateChanged(auth, (user) => {
            if (user) {
                setupLeaderboardListeners();
@@ -244,7 +316,20 @@
 
 <script>
        // Your p5.js game code
-       const DEPLOY_VERSION = '1.13.0';
+       const DEPLOY_VERSION = '1.14.0';
+       const SHARE_URL = 'https://highflygame-1ac8f.web.app/';
+       // p5 drops the font name straight into the canvas font string. Unquoted,
+       // "Press Start 2P" is invalid CSS (a name part can't start with a
+       // digit), so the browser silently ignored it and every pixel-font title
+       // fell back to 12px sans-serif. Quoting it fixes that.
+       const PIXEL_FONT = '"Press Start 2P", monospace';
+       // Canvas text doesn't trigger a web font download on its own, so ask for
+       // both fonts up front.
+       try {
+           document.fonts.load('20px "Press Start 2P"');
+           document.fonts.load('20px "Inter"');
+           document.fonts.load('bold 20px "Inter"');
+       } catch (e) {}
        let bird;
        let birdImg, secretBirdImg, titleImg, sunImg, moonImg;
        let dayCloudImgs = [], nightCloudImgs = [];
@@ -276,6 +361,7 @@
        let gameOverAlpha = 0;
        let displayScore = 0;
        let lastScoreWasHighScore = false;
+       let lastRunWasPersonalBest = false;
        // Brief input freeze after dying, so the tap that killed you (or panic
        // tapping) can't immediately trigger "Fly Again".
        let overInputLock = 0;
@@ -294,6 +380,21 @@
        let stackedShapes = [];
        let bestStackedScore = 0;
 
+       // --- Fixed-step timing ---
+       // Physics used to advance once per drawn frame, so on 120Hz phones
+       // (recent iPhones, most flagship Androids) the whole game ran at double
+       // speed. The frame rate is now capped at 60 and the simulation advances
+       // in fixed 60Hz steps, catching up on slower phones instead of slowing
+       // down.
+       const SIM_STEP_MS = 1000 / 60;
+       let simAcc = 0;
+       let simFrame = 0;
+
+       // --- Little UI bits ---
+       let toastText = '';
+       let toastTimer = 0;
+       const CORNER_BTN = 40;
+
        // Menu backdrop cycles day -> midnight -> stacked. Themes are rendered
        // into offscreen buffers so one can crossfade over the other.
        const MENU_THEMES = ['day', 'night', 'stacked'];
@@ -302,8 +403,104 @@
        let menuBufA = null, menuBufB = null;
        let starBuf = null;
 
+       function safeGet(key) { try { return localStorage.getItem(key); } catch (e) { return null; } }
+       function safeSet(key, val) { try { localStorage.setItem(key, val); } catch (e) {} }
+
+       // --- Sound effects ---
+       // Synthesised with Web Audio, so there are no sound files to load. The
+       // audio context can only start inside a tap, so every press calls
+       // Sfx.unlock(). iPhones also respect the ring/silent switch.
+       const Sfx = (() => {
+           let ctx = null, master = null, noiseBuf = null;
+           let muted = safeGet('duxHighFlyMuted') === '1';
+
+           function unlock() {
+               try {
+                   if (!ctx) {
+                       const AC = window.AudioContext || window.webkitAudioContext;
+                       if (!AC) return;
+                       ctx = new AC();
+                       master = ctx.createGain();
+                       master.gain.value = 0.32;
+                       master.connect(ctx.destination);
+                       noiseBuf = ctx.createBuffer(1, ctx.sampleRate * 0.5, ctx.sampleRate);
+                       const d = noiseBuf.getChannelData(0);
+                       for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+                   }
+                   if (ctx.state === 'suspended') ctx.resume();
+               } catch (e) {}
+           }
+
+           function tone(freq, dur, type = 'square', vol = 0.2, slideTo = null, delay = 0) {
+               if (muted || !ctx || ctx.state !== 'running') return;
+               try {
+                   const t = ctx.currentTime + delay;
+                   const o = ctx.createOscillator();
+                   const g = ctx.createGain();
+                   o.type = type;
+                   o.frequency.setValueAtTime(freq, t);
+                   if (slideTo) o.frequency.exponentialRampToValueAtTime(slideTo, t + dur);
+                   g.gain.setValueAtTime(vol, t);
+                   g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+                   o.connect(g);
+                   g.connect(master);
+                   o.start(t);
+                   o.stop(t + dur + 0.03);
+               } catch (e) {}
+           }
+
+           function noise(dur, vol = 0.3, cutoff = 1200) {
+               if (muted || !ctx || ctx.state !== 'running' || !noiseBuf) return;
+               try {
+                   const t = ctx.currentTime;
+                   const src = ctx.createBufferSource();
+                   src.buffer = noiseBuf;
+                   const f = ctx.createBiquadFilter();
+                   f.type = 'lowpass';
+                   f.frequency.setValueAtTime(cutoff, t);
+                   f.frequency.exponentialRampToValueAtTime(120, t + dur);
+                   const g = ctx.createGain();
+                   g.gain.setValueAtTime(vol, t);
+                   g.gain.exponentialRampToValueAtTime(0.0008, t + dur);
+                   src.connect(f);
+                   f.connect(g);
+                   g.connect(master);
+                   src.start(t);
+                   src.stop(t + dur + 0.03);
+               } catch (e) {}
+           }
+
+           return {
+               unlock,
+               isMuted: () => muted,
+               toggle() {
+                   muted = !muted;
+                   safeSet('duxHighFlyMuted', muted ? '1' : '0');
+                   if (!muted) { unlock(); tone(660, 0.08, 'square', 0.15); tone(990, 0.1, 'square', 0.15, null, 0.07); }
+               },
+               flap() { tone(380, 0.09, 'triangle', 0.22, 640); },
+               score() { tone(988, 0.06, 'square', 0.09); tone(1319, 0.09, 'square', 0.09, null, 0.055); },
+               milestone() { [523, 659, 784, 1047].forEach((f, i) => tone(f, 0.09, 'square', 0.1, null, i * 0.06)); },
+               pickup() { [784, 988, 1175, 1568].forEach((f, i) => tone(f, 0.08, 'triangle', 0.22, null, i * 0.045)); },
+               shieldBreak() { tone(700, 0.22, 'sawtooth', 0.12, 160); noise(0.18, 0.22, 2500); },
+               laser() { tone(180, 0.35, 'sawtooth', 0.07, 360); },
+               hit() { noise(0.35, 0.45, 1800); tone(220, 0.4, 'square', 0.16, 55); },
+               best() { [659, 784, 988, 1319].forEach((f, i) => tone(f, 0.14, 'square', 0.11, null, 0.35 + i * 0.09)); }
+           };
+       })();
+
+       function buzz(pattern) {
+           if (Sfx.isMuted() || !navigator.vibrate) return;
+           try { navigator.vibrate(pattern); } catch (e) {}
+       }
+
+       function showToast(msg) {
+           toastText = msg;
+           toastTimer = 110;
+       }
+
        window.p5 = this;
-       
+
        this.setLeaderboards = (dayData, nightData, stackedData) => {
            leaderboardDayData = dayData;
            leaderboardNightData = nightData;
@@ -317,7 +514,7 @@
                gameState = 'start';
            }
        }
-       
+
        // All art is served from this project. It used to load from imgur,
        // which put every image behind a third-party host the game has no
        // control over - if it rate-limited or went down, the game broke.
@@ -332,34 +529,134 @@
            nightCloudImgs.push(loadImage("assets/cloud-night-1.png"));
            nightCloudImgs.push(loadImage("assets/cloud-night-2.png"));
        }
-       
+
        function setup() {
+           // Phones report 3x pixel density; rendering a full-screen canvas at
+           // 3x (plus two menu buffers) is a lot of fill for a mid-range phone.
+           // 2x is visually identical for this art and much lighter.
+           pixelDensity(min(2, displayDensity()));
+           frameRate(60);
            const canvas = createCanvas(windowWidth, windowHeight);
+           canvas.elt.addEventListener('contextmenu', (e) => e.preventDefault());
            menuBufA = createGraphics(windowWidth, windowHeight);
            menuBufB = createGraphics(windowWidth, windowHeight);
+           // The menu backdrop is soft art behind the UI, so 1x is plenty.
+           try { menuBufA.pixelDensity(1); menuBufB.pixelDensity(1); } catch (e) {}
            starBuf = createGraphics(256, 256);
            bird = new Bird();
-           bestDayScore = parseInt(localStorage.getItem('duxHighFlyBestDay')) || 0;
-           bestNightScore = parseInt(localStorage.getItem('duxHighFlyBestNight')) || 0;
+           bestDayScore = parseInt(safeGet('duxHighFlyBestDay')) || 0;
+           bestNightScore = parseInt(safeGet('duxHighFlyBestNight')) || 0;
            // Fall back to the old key so a returning player's personal best
            // does not silently reset to 0 after the RUSH -> STACKED rename.
-           bestStackedScore = parseInt(localStorage.getItem('duxHighFlyBestStacked')) || parseInt(localStorage.getItem('duxHighFlyBestRush')) || 0;
+           bestStackedScore = parseInt(safeGet('duxHighFlyBestStacked')) || parseInt(safeGet('duxHighFlyBestRush')) || 0;
            for (let i = 0; i < 3; i++) {
                clouds.push(new Cloud(random(width), random(height * 0.05, height * 0.25)));
            }
+
+           // If the leaderboard is slow or blocked (patchy mobile data, strict
+           // office wifi), don't leave people stuck on "Loading...". The game
+           // still works; scores just won't be offered to the board until it
+           // arrives.
+           setTimeout(() => { if (gameState === 'loading') gameState = 'start'; }, 4500);
+
+           // Switching apps or locking the phone mid-run pauses instead of
+           // letting the duck fall while nobody is looking.
+           document.addEventListener('visibilitychange', () => { if (document.hidden) pauseGame(); });
+           window.addEventListener('blur', pauseGame);
        }
-       
+
        function windowResized() {
+           let oldW = width, oldH = height;
            resizeCanvas(windowWidth, windowHeight);
            if (menuBufA) menuBufA.resizeCanvas(windowWidth, windowHeight);
            if (menuBufB) menuBufB.resizeCanvas(windowWidth, windowHeight);
-           if (bird) {
-                bird.baseY = height / 2;
-                bird.reset();
+           if (!bird) return;
+
+           let inRun = gameState === 'play' || gameState === 'paused' || gameState === 'ready';
+           if (!inRun) {
+               bird.baseY = height / 2;
+               bird.reset();
+               return;
+           }
+
+           // Mid-run resize (browser toolbar showing/hiding, rotating the
+           // phone). This used to snap the duck back to the middle of the
+           // screen. Instead, scale the whole scene so everything stays where
+           // it was relative to the screen.
+           let rx = oldW > 0 ? width / oldW : 1;
+           let ry = oldH > 0 ? height / oldH : 1;
+           let velScale = ry;
+           bird.size = height * 0.08;
+           bird.x = width / 4;
+           bird.y *= ry;
+           bird.baseY = height / 2;
+           bird.gravity = 0.0005 * height;
+           bird.lift = -0.012 * height;
+           bird.velocity *= velScale;
+           for (let p of pipes) {
+               p.x *= rx;
+               p.w = width * 0.1;
+               p.speed *= rx;
+               p.top *= ry;
+               p.spacing *= ry;
+               p.bottom = height - (p.top + p.spacing);
+           }
+           for (let hz of hazards) {
+               hz.y *= ry;
+               hz.thickness = height * 0.05;
+           }
+           if (powerUp) {
+               powerUp.x *= rx;
+               powerUp.y *= ry;
+               powerUp.size = height * 0.05;
+               powerUp.speed *= rx;
+           }
+           // A rotation is a big change; give the player a beat to re-grip.
+           if (gameState === 'play' && abs(rx - 1) > 0.15) pauseGame();
+       }
+
+       function pauseGame() {
+           if (gameState === 'play') {
+               gameState = 'paused';
            }
        }
-       
+
+       function resumeGame() {
+           if (gameState !== 'paused') return;
+           gameState = 'play';
+           simAcc = 0;
+           bird.up();
+       }
+
+       function beginFlight() {
+           if (gameState !== 'ready') return;
+           gameState = 'play';
+           simAcc = 0;
+           simFrame = 0;
+           bird.up();
+       }
+
+       // Run one fixed 60Hz step of the actual game (no drawing).
+       function simulateStep() {
+           playGame();
+           if (gameState === 'play') bird.update();
+       }
+
        function draw() {
+           // Work out how many fixed steps this frame represents. At 60fps
+           // that's 1; a phone struggling at 30fps gets 2 so the game keeps
+           // its speed. The first step happens in the normal play branch
+           // below (which updates and draws together); any extra catch-up
+           // steps run here first.
+           let simSteps = 1;
+           if (gameState === 'play') {
+               simAcc += min(deltaTime, 100);
+               simSteps = constrain(floor((simAcc + 4) / SIM_STEP_MS), 1, 4);
+               simAcc = constrain(simAcc - simSteps * SIM_STEP_MS, -8, SIM_STEP_MS);
+               for (let s = 1; s < simSteps && gameState === 'play'; s++) simulateStep();
+           }
+
+           push();
            if (shakeDuration > 0) {
                translate(random(-shakeAmount, shakeAmount), random(-shakeAmount, shakeAmount));
                shakeDuration--;
@@ -380,6 +677,7 @@
 
            if (gameState === 'loading') {
                drawLoadingScreen();
+               pop();
                return;
            }
            if (gameState !== 'start') {
@@ -392,13 +690,13 @@
                }
            }
 
-           if (gameState !== 'start' && !stackedMode && (gameState === 'play' || gameState === 'over' || gameState === 'entering_name' || gameState === 'leaderboard')) {
+           if (gameState !== 'start' && !stackedMode) {
                 for (let cloud of clouds) {
                     cloud.show();
-                    if(gameState === 'play') cloud.update();
+                    if (gameState === 'play') { for (let s = 0; s < simSteps; s++) cloud.update(); }
                 }
            }
-            
+
            if (gameState === 'start' || gameState === 'play' || gameState === 'over') {
                 for (let c of confetti) { c.show(); c.update(); }
            }
@@ -408,8 +706,10 @@
                bird.hover();
                bird.show();
                drawStartScreen();
+           } else if (gameState === 'ready') {
+               drawReadyScreen();
            } else if (gameState === 'play') {
-               if (midnightMode) {
+               if (midnightMode && !stackedMode) {
                    // Lightning is deliberately infrequent: a full-screen flash
                    // firing about once a second is unpleasant and a
                    // photosensitivity risk, so it stays an occasional beat.
@@ -440,7 +740,7 @@
                if (powerUp) powerUp.show();
                bird.show();
                playGame();
-               bird.update();
+               if (gameState === 'play') bird.update();
                if (stackedMode || starMode) {
                    neonTrail.push(new NeonSparkle(bird.x - bird.size * 0.35, bird.y));
                }
@@ -459,14 +759,10 @@
                    scorePopups[i].show();
                    if (scorePopups[i].offscreen()) scorePopups.splice(i, 1);
                }
-               fill(255);
-               stroke(0);
-               strokeWeight(4);
-               let size = height * 0.05;
-               textSize(size);
-               textFont('Press Start 2P');
-               textAlign(CENTER, TOP);
-               text(score, width / 2, 20);
+               drawInGameScore();
+               if (gameState === 'play') drawPauseButton();
+           } else if (gameState === 'paused') {
+               drawPausedScreen();
            } else if (gameState === 'over' || gameState === 'entering_name') {
                if (midnightMode && !stackedMode) { for (let i = rain.length - 1; i >= 0; i--) { rain[i].show(); } }
                for (let p of pipes) { p.show(); }
@@ -483,17 +779,176 @@
            } else if (gameState === 'leaderboard') {
                drawLeaderboardScreen();
            }
+           pop();
+
+           if (gameState === 'start' || gameState === 'over' || gameState === 'leaderboard') {
+               drawSoundButton();
+           }
+           drawToast();
        }
-       
+
+       // Shrink text to fit a width. "Press Start 2P" glyphs are as wide as
+       // the font size, so titles sized off screen height ran off the edges
+       // of narrow phones ("Game Over", "Score: 1234", leaderboard headings).
+       function fitTextSize(str, size, maxW) {
+           textSize(size);
+           let w = textWidth(str);
+           let s = w > maxW ? size * maxW / w : size;
+           textSize(s);
+           return s;
+       }
+
+       function drawInGameScore() {
+           push();
+           fill(255);
+           stroke(0);
+           strokeWeight(4);
+           textFont(PIXEL_FONT);
+           fitTextSize(String(score), height * 0.05, width * 0.5);
+           textAlign(CENTER, TOP);
+           text(score, width / 2, 20);
+           pop();
+       }
+
+       function drawReadyScreen() {
+           for (let p of pipes) { p.show(); }
+           bird.x = width / 4;
+           bird.y = height / 2 + sin(frameCount * 0.08) * 8;
+           bird.velocity = 0;
+           bird.show();
+           drawInGameScore();
+
+           // Hold until the first tap, so the run never starts with the duck
+           // already falling while someone is still getting a grip on the phone.
+           let pulse = 170 + sin(frameCount * 0.12) * 85;
+           push();
+           textAlign(CENTER, CENTER);
+           textFont(PIXEL_FONT);
+           stroke(0);
+           strokeWeight(4);
+           fill(255, 255, 255, pulse);
+           fitTextSize('TAP TO FLAP', height * 0.04, width * 0.84);
+           text('TAP TO FLAP', width / 2, height * 0.66);
+           noStroke();
+           fill(255, 230);
+           textFont('Inter');
+           textSize(max(12, height * 0.018));
+           let modeName = stackedMode ? 'STACKED: double points, watch for lasers'
+               : (midnightMode ? 'Midnight Flight' : 'Day Flight');
+           fitTextSize(modeName, max(12, height * 0.018), width * 0.9);
+           text(modeName, width / 2, height * 0.72);
+           // little "up" chevrons above the duck
+           let bob = sin(frameCount * 0.12) * 4;
+           fill(255, 255, 255, pulse);
+           let cx = bird.x, cy = bird.y - bird.size * 0.95 + bob, s = bird.size * 0.16;
+           triangle(cx - s, cy + s * 0.6, cx + s, cy + s * 0.6, cx, cy - s * 0.6);
+           triangle(cx - s, cy + s * 1.8, cx + s, cy + s * 1.8, cx, cy + s * 0.6);
+           pop();
+       }
+
+       function drawPausedScreen() {
+           if (midnightMode && !stackedMode) { for (let i = rain.length - 1; i >= 0; i--) { rain[i].show(); } }
+           for (let p of pipes) { p.show(); }
+           for (let hz of hazards) { hz.show(); }
+           if (powerUp) powerUp.show();
+           bird.show();
+           drawInGameScore();
+
+           push();
+           noStroke();
+           fill(0, 0, 0, 140);
+           rectMode(CORNER);
+           rect(0, 0, width, height);
+           textAlign(CENTER, CENTER);
+           textFont(PIXEL_FONT);
+           fill(255);
+           fitTextSize('PAUSED', height * 0.06, width * 0.8);
+           text('PAUSED', width / 2, height * 0.42);
+           textFont('Inter');
+           fill(255, 220 + sin(frameCount * 0.1) * 35);
+           textSize(max(14, height * 0.024));
+           text('Tap to keep flying', width / 2, height * 0.5);
+           pop();
+       }
+
+       function pauseButtonRect() {
+           return { x: width - CORNER_BTN / 2 - 10, y: CORNER_BTN / 2 + 10, w: CORNER_BTN + 8, h: CORNER_BTN + 8 };
+       }
+
+       function drawPauseButton() {
+           let r = pauseButtonRect();
+           push();
+           rectMode(CENTER);
+           noStroke();
+           fill(0, 0, 0, 70);
+           rect(r.x, r.y, CORNER_BTN, CORNER_BTN, 10);
+           fill(255, 235);
+           let bw = CORNER_BTN * 0.14, bh = CORNER_BTN * 0.46;
+           rect(r.x - bw * 1.1, r.y, bw, bh, 2);
+           rect(r.x + bw * 1.1, r.y, bw, bh, 2);
+           pop();
+       }
+
+       function soundButtonRect() {
+           return { x: CORNER_BTN / 2 + 10, y: CORNER_BTN / 2 + 10, w: CORNER_BTN + 8, h: CORNER_BTN + 8 };
+       }
+
+       function drawSoundButton() {
+           let r = soundButtonRect();
+           let m = Sfx.isMuted();
+           push();
+           rectMode(CENTER);
+           noStroke();
+           fill(0, 0, 0, 80);
+           rect(r.x, r.y, CORNER_BTN, CORNER_BTN, 10);
+           translate(r.x - CORNER_BTN * 0.08, r.y);
+           let u = CORNER_BTN / 40;
+           fill(255);
+           rectMode(CORNER);
+           rect(-10 * u, -4 * u, 6 * u, 8 * u);
+           triangle(-4 * u, -4 * u, -4 * u, 4 * u, 4 * u, -10 * u);
+           triangle(-4 * u, 4 * u, 4 * u, 10 * u, 4 * u, -10 * u);
+           noFill();
+           stroke(255);
+           strokeWeight(2 * u);
+           if (m) {
+               line(8 * u, -5 * u, 16 * u, 5 * u);
+               line(16 * u, -5 * u, 8 * u, 5 * u);
+           } else {
+               arc(5 * u, 0, 10 * u, 12 * u, -PI / 3, PI / 3);
+               arc(5 * u, 0, 20 * u, 22 * u, -PI / 3, PI / 3);
+           }
+           pop();
+       }
+
+       function drawToast() {
+           if (toastTimer <= 0) return;
+           toastTimer--;
+           let a = min(255, toastTimer * 8);
+           push();
+           textFont('Inter');
+           textSize(max(14, height * 0.02));
+           let w = textWidth(toastText) + 36;
+           let h = max(14, height * 0.02) + 22;
+           rectMode(CENTER);
+           noStroke();
+           fill(20, 24, 40, a * 0.9);
+           rect(width / 2, height * 0.12, w, h, h / 2);
+           fill(255, a);
+           textAlign(CENTER, CENTER);
+           text(toastText, width / 2, height * 0.12);
+           pop();
+       }
+
        function drawLoadingScreen() {
            background(30, 30, 30);
            textAlign(CENTER, CENTER);
-           textFont('Press Start 2P');
-           textSize(height * 0.05);
+           textFont(PIXEL_FONT);
+           fitTextSize('Loading...', height * 0.05, width * 0.8);
            fill(255);
            text('Loading...', width / 2, height / 2);
        }
-       
+
        function drawScenery() {
            fill(34, 139, 34);
            noStroke();
@@ -545,7 +1000,7 @@
 
            // beat pulse
            let beat = (frameCount % 40) / 40;
-           if (beat < 0.18) {
+           if (beat < 0.18 && gameState === 'play') {
                push();
                noStroke();
                fill(255, 255, 255, map(beat, 0, 0.18, 45, 0));
@@ -685,7 +1140,7 @@
 
            drawThemeTo(menuBufA, MENU_THEMES[idx]);
            imageMode(CORNER);
-           image(menuBufA, 0, 0);
+           image(menuBufA, 0, 0, width, height);
 
            if (fade > 0) {
                drawThemeTo(menuBufB, MENU_THEMES[(idx + 1) % MENU_THEMES.length]);
@@ -695,7 +1150,7 @@
                // readback every frame of the fade.
                push();
                drawingContext.globalAlpha = fade;
-               image(menuBufB, 0, 0);
+               image(menuBufB, 0, 0, width, height);
                drawingContext.globalAlpha = 1;
                pop();
            }
@@ -727,26 +1182,41 @@
        // stay on screen.
        function startMenuLayout() {
            let btnWidth = min(width * 0.7, 400);
-           let btnHeight = height * 0.068;
+           let btnHeight = max(42, height * 0.068);
            let step = btnHeight + 14;
            return { btnWidth, btnHeight, step, count: 4, base: height * 0.94 - btnHeight / 2 - step * 3 };
        }
-       
+
+       // Game over also has 4 buttons now (Fly Again / Share / mode switch /
+       // Leaderboard), laid out the same way as the menu.
+       function overLayout() {
+           let btnWidth = min(width * 0.7, 400);
+           let btnHeight = max(42, height * 0.066);
+           let step = btnHeight + 12;
+           return { btnWidth, btnHeight, step, count: 4, base: height * 0.93 - btnHeight / 2 - step * 3 };
+       }
+
        function drawStartScreen() {
+           let L = startMenuLayout();
            if (titleImg) {
                imageMode(CENTER);
                let imgWidth = min(width * 0.8, 500);
                let imgHeight = imgWidth * (titleImg.height / titleImg.width);
-               image(titleImg, width / 2, height / 4, imgWidth, imgHeight);
+               // keep the logo clear of the button stack on short screens
+               let topRoom = L.base - L.btnHeight / 2 - height * 0.07;
+               if (imgHeight > topRoom * 1.1) {
+                   imgHeight = topRoom * 1.1;
+                   imgWidth = imgHeight * (titleImg.width / titleImg.height);
+               }
+               image(titleImg, width / 2, min(height / 4, topRoom * 0.5), imgWidth, imgHeight);
            }
 
            noStroke();
            fill(255);
            textFont('Inter');
-           textSize(max(11, height * 0.017));
            textAlign(CENTER, CENTER);
-           let L = startMenuLayout();
            let bestLine = `Day Best: ${bestDayScore}    Night Best: ${bestNightScore}    Stacked Best: ${bestStackedScore}`;
+           fitTextSize(bestLine, max(11, height * 0.017), width * 0.94);
            text(bestLine, width / 2, L.base - L.btnHeight / 2 - height * 0.035);
 
            let btnWidth = L.btnWidth;
@@ -762,7 +1232,7 @@
            drawStackedButton("⚡ STACKED ⚡", width / 2, sBy4, btnWidth, btnHeight, isMouseOverRect(width / 2, sBy4, btnWidth, btnHeight));
 
            drawDuxLink();
-           
+
            noStroke();
            fill(255);
            textSize(12);
@@ -770,71 +1240,93 @@
            textFont('Inter');
            text(`v${DEPLOY_VERSION}`, width - 10, height - 10);
        }
-       
+
        function drawGameOverScreen() {
            if (overInputLock > 0) overInputLock--;
            gameOverAlpha = min(gameOverAlpha + 12, 150);
            fill(0, 0, 0, gameOverAlpha);
            rect(0, 0, width, height);
-           textFont('Press Start 2P');
+           textFont(PIXEL_FONT);
            textAlign(CENTER, CENTER);
-           let titleSize = height * 0.08;
-           textSize(titleSize);
            if (stackedMode) {
                fill(stackedColor(0, 90, 100));
                stroke(0);
                strokeWeight(3);
-               text('STACKED OVER', width/2, height * 0.3);
+               fitTextSize('STACKED OVER', height * 0.07, width * 0.9);
+               text('STACKED OVER', width/2, height * 0.2);
            } else {
                fill(180, 0, 0);
                stroke(0);
                strokeWeight(2);
-               text('Game Over', width/2, height * 0.3);
+               fitTextSize('Game Over', height * 0.07, width * 0.9);
+               text('Game Over', width/2, height * 0.2);
            }
            noStroke();
 
-           if (lastScoreWasHighScore) {
+           if (lastScoreWasHighScore || lastRunWasPersonalBest) {
                let pulse = 200 + sin(frameCount * 0.15) * 55;
                fill(255, pulse, 0);
-               textSize(height * 0.03);
-               text('NEW HIGH SCORE!', width / 2, height * 0.38);
+               let msg = lastScoreWasHighScore ? 'NEW HIGH SCORE!' : 'NEW PERSONAL BEST!';
+               fitTextSize(msg, height * 0.026, width * 0.9);
+               text(msg, width / 2, height * 0.27);
            }
 
            fill(255);
-           let scoreSize = height * 0.05;
-           textSize(scoreSize);
            displayScore += (score - displayScore) * 0.15;
            if (abs(score - displayScore) < 0.5) displayScore = score;
-           text(`Score: ${floor(displayScore)}`, width/2, height * 0.45);
+           let scoreLine = `Score: ${floor(displayScore)}`;
+           fitTextSize(`Score: ${score}`, height * 0.045, width * 0.9);
+           text(scoreLine, width/2, height * 0.34);
 
-           textSize(height * 0.025);
            fill(255, 230);
            let modeBest = stackedMode ? bestStackedScore : (midnightMode ? bestNightScore : bestDayScore);
-           text(`Best: ${modeBest}`, width/2, height * 0.51);
+           fitTextSize(`Best: ${modeBest}`, height * 0.024, width * 0.9);
+           text(`Best: ${modeBest}`, width/2, height * 0.40);
 
            let medal = medalFor(score, currentMode());
-           if (medal) drawMedal(medal, width / 2, height * 0.575, height * 0.030);
+           if (medal) drawMedal(medal, width / 2, height * 0.465, height * 0.028);
 
-           let btnWidth = min(width * 0.7, 400);
-           let btnHeight = height * 0.08;
-           let gBy1 = height * 0.7, gBy2 = height * 0.7 + btnHeight + 20, gBy3 = height * 0.7 + (btnHeight + 20) * 2;
+           let L = overLayout();
+           let btnWidth = L.btnWidth, btnHeight = L.btnHeight;
+           let gBy1 = L.base, gBy2 = L.base + L.step, gBy3 = L.base + L.step * 2, gBy4 = L.base + L.step * 3;
            if (stackedMode) {
                drawStackedButton("STACKED AGAIN", width / 2, gBy1, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy1, btnWidth, btnHeight));
-               drawButton("Exit Stacked", width / 2, gBy2, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy2, btnWidth, btnHeight));
-               drawButton("Leaderboard", width / 2, gBy3, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy3, btnWidth, btnHeight));
            } else {
                drawButton("Fly Again", width / 2, gBy1, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy1, btnWidth, btnHeight));
-               if (midnightMode) {
-                   drawButton("Day Flight", width / 2, gBy2, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy2, btnWidth, btnHeight));
-               } else {
-                   drawButton("Midnight Flight", width / 2, gBy2, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy2, btnWidth, btnHeight));
-               }
-               drawButton("Leaderboard", width / 2, gBy3, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy3, btnWidth, btnHeight));
            }
+           drawButton("Share Score", width / 2, gBy2, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy2, btnWidth, btnHeight), [34, 170, 90], [52, 199, 110]);
+           if (stackedMode) {
+               drawButton("Exit Stacked", width / 2, gBy3, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy3, btnWidth, btnHeight));
+           } else if (midnightMode) {
+               drawButton("Day Flight", width / 2, gBy3, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy3, btnWidth, btnHeight));
+           } else {
+               drawButton("Midnight Flight", width / 2, gBy3, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy3, btnWidth, btnHeight));
+           }
+           drawButton("Leaderboard", width / 2, gBy4, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy4, btnWidth, btnHeight));
 
            drawDuxLink();
        }
-       
+
+       async function shareScore() {
+           const modeName = stackedMode ? 'STACKED' : (midnightMode ? 'Midnight Flight' : 'Day Flight');
+           const text = `I just scored ${score} on Dux-Soup High Fly (${modeName}). Think you can beat it?`;
+           try {
+               if (navigator.share) {
+                   await navigator.share({ title: 'Dux-Soup High Fly', text, url: SHARE_URL });
+                   return;
+               }
+           } catch (e) {
+               // Closing the share sheet isn't an error worth reporting.
+               if (e && e.name === 'AbortError') return;
+           }
+           try {
+               await navigator.clipboard.writeText(`${text} ${SHARE_URL}`);
+               showToast('Copied! Paste it anywhere');
+           } catch (e) {
+               showToast(SHARE_URL);
+           }
+       }
+
        // Medals give a run something to aim at between "died early" and
        // "made the leaderboard". STACKED thresholds are higher because it pays
        // double per pipe.
@@ -865,7 +1357,7 @@
            drawStar(x, y, r * 0.3, r * 0.68, 5);
            noStroke();
            fill(m.c1[0], m.c1[1], m.c1[2]);
-           textFont('Press Start 2P');
+           textFont(PIXEL_FONT);
            textAlign(CENTER, CENTER);
            textSize(max(9, r * 0.42));
            text(m.name, x, y + r * 1.65);
@@ -894,11 +1386,11 @@
 
        function leaderboardTabRect(i) {
            let tabW = min(width * 0.29, 190);
-           let tabH = max(height * 0.06, 34);
+           let tabH = max(height * 0.06, 40);
            let gap = tabW * 0.06;
            let totalW = tabW * 3 + gap * 2;
            let x = width / 2 - totalW / 2 + tabW / 2 + i * (tabW + gap);
-           return { x, y: height * 0.09, w: tabW, h: tabH };
+           return { x, y: max(height * 0.09, CORNER_BTN + 20 + tabH / 2), w: tabW, h: tabH };
        }
 
        function leaderboardDataFor(id) {
@@ -910,7 +1402,7 @@
        function drawLeaderboardScreen() {
            fill(0, 0, 0, 150);
            rect(0, 0, width, height);
-           textFont('Press Start 2P');
+           textFont(PIXEL_FONT);
            textAlign(CENTER, CENTER);
 
            // mode tabs
@@ -932,55 +1424,57 @@
                rect(r.x, r.y, r.w, r.h, 8);
                noStroke();
                fill(selected ? 255 : 200);
-               textFont('Press Start 2P');
-               textSize(min(r.h * 0.3, r.w * 0.13));
+               textFont(PIXEL_FONT);
+               fitTextSize(tab.label, min(r.h * 0.3, r.w * 0.13), r.w * 0.86);
                textAlign(CENTER, CENTER);
                text(tab.label, r.x, r.y);
                pop();
            }
 
            let data = leaderboardDataFor(leaderboardTab);
+           let tabBottom = leaderboardTabRect(0).y + leaderboardTabRect(0).h / 2;
+           let headingY = max(height * 0.2, tabBottom + height * 0.05);
 
            push();
-           textFont('Press Start 2P');
+           textFont(PIXEL_FONT);
            textAlign(CENTER, CENTER);
-           textSize(height * 0.022);
            fill(leaderboardTab === 'stacked' ? color(255, 120, 220) : color(255, 215, 0));
            let heading = leaderboardTab === 'stacked' ? '--- STACKED ---'
                : (leaderboardTab === 'night' ? '--- MIDNIGHT FLIGHT ---' : '--- DAY FLIGHT ---');
-           text(heading, width / 2, height * 0.2);
+           fitTextSize(heading, height * 0.022, width * 0.9);
+           text(heading, width / 2, headingY);
            pop();
 
+           let listTop = headingY + height * 0.07;
            if (data.length === 0) {
                push();
-               textFont('Press Start 2P');
+               textFont(PIXEL_FONT);
                textAlign(CENTER, CENTER);
-               textSize(height * 0.018);
+               fitTextSize('No scores yet', height * 0.018, width * 0.8);
                fill(220);
                text('No scores yet', width / 2, height * 0.35);
                pop();
            } else if (width < 640) {
                // One full-width column: two narrow columns let 10-character
                // names collide with their scores on a phone.
-               let entrySize = height * 0.015;
+               let entrySize = min(height * 0.015, width * 0.034);
                let lineGap = height * 0.0085;
-               drawLeaderboardColumn(data, 0, 20, width * 0.1, width * 0.9, height * 0.27, entrySize, lineGap);
+               drawLeaderboardColumn(data, 0, 20, width * 0.08, width * 0.92, listTop, entrySize, lineGap);
            } else {
                let entrySize = height * 0.02;
                let lineGap = height * 0.009;
-               let entryY = height * 0.28;
-               drawLeaderboardColumn(data, 0, 10, width * 0.08, width * 0.44, entryY, entrySize, lineGap);
-               drawLeaderboardColumn(data, 10, 10, width * 0.56, width * 0.92, entryY, entrySize, lineGap);
+               drawLeaderboardColumn(data, 0, 10, width * 0.08, width * 0.44, listTop, entrySize, lineGap);
+               drawLeaderboardColumn(data, 10, 10, width * 0.56, width * 0.92, listTop, entrySize, lineGap);
            }
 
            let btnWidth = min(width * 0.7, 400);
-           let btnHeight = height * 0.08;
+           let btnHeight = max(42, height * 0.07);
            let backY = height * 0.9;
            drawButton("Back", width / 2, backY, btnWidth, btnHeight, isMouseOverRect(width / 2, backY, btnWidth, btnHeight));
 
            drawDuxLink();
        }
-       
+
        function getLinkTextSize() {
            return max(12, height * 0.018);
        }
@@ -990,12 +1484,12 @@
                let L = startMenuLayout();
                return L.base + L.step * (L.count - 1) + L.btnHeight / 2 + 22;
            }
-           let btnHeight = height * 0.08;
-           let step = btnHeight + 20;
            if (gameState === 'over') {
-               return height * 0.7 + step * 2 + btnHeight / 2 + 30;
+               let L = overLayout();
+               return L.base + L.step * (L.count - 1) + L.btnHeight / 2 + 22;
            }
-           return height * 0.9 + btnHeight / 2 + 30;
+           let btnHeight = max(42, height * 0.07);
+           return height * 0.9 + btnHeight / 2 + 24;
        }
 
        // --- UPDATED: Responsive link positioning ---
@@ -1004,7 +1498,7 @@
            const size = getLinkTextSize();
            const isHovering = isMouseOverLink();
            const linkColor = isHovering ? color(255, 255, 255) : color(200, 220, 255);
-           
+
            fill(linkColor);
            noStroke();
            textFont('Inter');
@@ -1027,7 +1521,7 @@
            } else {
                 textAlign(RIGHT, BOTTOM);
                 x = width - 20;
-                y = height - 40; 
+                y = height - 40;
                 text(linkText, x, y);
                 linkW = textWidth(linkText);
                 if (isHovering) {
@@ -1060,12 +1554,12 @@
                 x = width - 20;
                 y = height - 40;
                 linkW = textWidth(linkText);
-                linkH = size * 1.5; 
+                linkH = size * 1.5;
                 return (mouseX > x - linkW && mouseX < x &&
                         mouseY > y - linkH && mouseY < y);
            }
        }
-       
+
        function isMouseOverRect(x, y, w, h) {
            return mouseX > x - w / 2 && mouseX < x + w / 2 && mouseY > y - h / 2 && mouseY < y + h / 2;
        }
@@ -1096,31 +1590,34 @@
            push();
            noStroke();
            fill(255);
-           textFont('Press Start 2P');
-           textSize(h * 0.28);
+           stroke(0, 0, 0, 120);
+           strokeWeight(3);
+           textFont(PIXEL_FONT);
+           fitTextSize(txt, h * 0.28, w * 0.88);
            textAlign(CENTER, CENTER);
            text(txt, x, by);
            pop();
            rectMode(CORNER);
        }
 
-       function drawButton(txt, x, y, w, h, hovered = false) {
+       function drawButton(txt, x, y, w, h, hovered = false, base = [60, 100, 255], hover = [100, 140, 255]) {
            let by = y + (hovered ? -2 : 0);
            stroke(255);
            strokeWeight(3);
-           fill(hovered ? color(100, 140, 255) : color(60, 100, 255));
+           fill(hovered ? color(hover[0], hover[1], hover[2]) : color(base[0], base[1], base[2]));
            rectMode(CENTER);
            rect(x, by, w, h, 10);
            fill(255);
            noStroke();
            textFont('Inter');
-           textSize(h * 0.4);
+           fitTextSize(txt, h * 0.4, w * 0.88);
            textAlign(CENTER, CENTER);
            text(txt, x, by);
            rectMode(CORNER);
        }
-       
+
        function playGame() {
+           simFrame++;
            if (shieldGraceFrames > 0) shieldGraceFrames--;
 
            let diff = modeDifficulty();
@@ -1128,7 +1625,7 @@
            // keeps the corridor the player must thread through predictable, and
            // reads as a deliberate breather in the pipe rhythm.
            let holdPipes = stackedMode && hazards.length > 0;
-            if (frameCount % diff.interval === 0 && !holdPipes) {
+            if (simFrame % diff.interval === 0 && !holdPipes) {
                let lastPipe = pipes.length > 0 ? pipes[pipes.length - 1] : null;
                let newPipe = new Pipe(lastPipe);
                pipes.push(newPipe);
@@ -1149,9 +1646,12 @@
                            hasShield = false;
                            shieldGraceFrames = 30;
                            shieldFlashTimer = 8;
+                           Sfx.shieldBreak();
+                           buzz(25);
                            for (let k = 0; k < 20; k++) shieldParticles.push(new ShieldParticle(bird.x, bird.y));
                        } else {
                            endGame();
+                           return;
                        }
                    }
                    if (hazards[i].done()) hazards.splice(i, 1);
@@ -1165,9 +1665,12 @@
                        shieldGraceFrames = 24;
                        shieldFlashTimer = 8;
                        bird.velocity = bird.lift * 0.6;
+                       Sfx.shieldBreak();
+                       buzz(25);
                        for (let k = 0; k < 20; k++) shieldParticles.push(new ShieldParticle(bird.x, bird.y));
                    } else {
                        endGame();
+                       return;
                    }
                }
                if (!pipes[i].passed && pipes[i].x + pipes[i].w < bird.x) {
@@ -1175,7 +1678,12 @@
                    let gain = stackedMode ? 10 : 5;
                    score += gain;
                    scorePopups.push(new ScorePopup(bird.x, bird.y - bird.size * 0.7, gain));
-                   if (score > 0 && score % 50 === 0) launchConfetti();
+                   if (score > 0 && score % 50 === 0) {
+                       launchConfetti();
+                       Sfx.milestone();
+                   } else {
+                       Sfx.score();
+                   }
                }
                if (pipes[i].offscreen()) {
                    pipes.splice(i, 1);
@@ -1186,6 +1694,8 @@
                powerUp.update();
                if (powerUp.hits(bird)) {
                    hasShield = true;
+                   Sfx.pickup();
+                   buzz(15);
                    for (let k = 0; k < 18; k++) shieldParticles.push(new ShieldParticle(powerUp.x, powerUp.y));
                    powerUp = null;
                } else if (powerUp.offscreen()) {
@@ -1197,54 +1707,77 @@
                endGame();
            }
        }
-       
+
        function endGame() {
            if (gameState === 'over' || gameState === 'entering_name') return;
-           
+
            shakeDuration = 20;
            shakeAmount = 8;
            gameOverAlpha = 0;
            displayScore = 0;
            overInputLock = 28;
+           Sfx.hit();
+           buzz([40, 30, 60]);
            for (let i = 0; i < 24; i++) {
                impactParticles.push(new ImpactParticle(bird.x, bird.y));
            }
 
+           lastRunWasPersonalBest = false;
            if (stackedMode) {
                if (score > bestStackedScore) {
+                   lastRunWasPersonalBest = bestStackedScore > 0;
                    bestStackedScore = score;
-                   localStorage.setItem('duxHighFlyBestStacked', bestStackedScore);
+                   safeSet('duxHighFlyBestStacked', bestStackedScore);
                }
            } else if (midnightMode) {
                if (score > bestNightScore) {
+                   lastRunWasPersonalBest = bestNightScore > 0;
                    bestNightScore = score;
-                   localStorage.setItem('duxHighFlyBestNight', bestNightScore);
+                   safeSet('duxHighFlyBestNight', bestNightScore);
                }
            } else {
                if (score > bestDayScore) {
+                   lastRunWasPersonalBest = bestDayScore > 0;
                    bestDayScore = score;
-                   localStorage.setItem('duxHighFlyBestDay', bestDayScore);
+                   safeSet('duxHighFlyBestDay', bestDayScore);
                }
            }
 
-           if (window.checkHighScore(score, currentMode())) {
+           if (window.checkHighScore && window.checkHighScore(score, currentMode())) {
                lastScoreWasHighScore = true;
+               Sfx.best();
                gameState = 'entering_name';
            } else {
                lastScoreWasHighScore = false;
+               if (lastRunWasPersonalBest) Sfx.best();
                gameState = 'over';
            }
        }
-       
+
        function mousePressed() {
            if (gameState === 'entering_name') {
                return;
            }
-           
+           Sfx.unlock();
+
            if (gameState === 'start' || gameState === 'over' || gameState === 'leaderboard') {
+               let r = soundButtonRect();
+               if (isMouseOverRect(r.x, r.y, r.w, r.h)) {
+                   Sfx.toggle();
+                   showToast(Sfx.isMuted() ? 'Sound off' : 'Sound on');
+                   return false;
+               }
                if (isMouseOverLink()) {
                    window.open('https://www.dux-soup.com/', '_blank');
-                   return; 
+                   return false;
+               }
+           }
+
+           if (gameState === 'play') {
+               let r = pauseButtonRect();
+               if (isMouseOverRect(r.x, r.y, r.w, r.h)) {
+                   pauseGame();
+                   return false;
                }
            }
 
@@ -1266,13 +1799,30 @@
 
        function keyPressed() {
            if (gameState === 'entering_name') return;
+           Sfx.unlock();
 
            const flap = (key === ' ' || keyCode === UP_ARROW || key === 'w' || key === 'W');
            const confirm = (key === ' ' || keyCode === ENTER);
+           const pauseKey = (key === 'p' || key === 'P' || keyCode === ESCAPE);
 
            if (gameState === 'play') {
+               if (pauseKey) { pauseGame(); return false; }
                if (flap) { bird.up(); return false; }
                return;
+           }
+           if (gameState === 'ready') {
+               if (flap || confirm) { beginFlight(); return false; }
+               if (keyCode === ESCAPE) { stackedMode = false; gameState = 'start'; return false; }
+               return;
+           }
+           if (gameState === 'paused') {
+               if (flap || confirm || pauseKey) { resumeGame(); return false; }
+               return;
+           }
+           if (key === 'm' || key === 'M') {
+               Sfx.toggle();
+               showToast(Sfx.isMuted() ? 'Sound off' : 'Sound on');
+               return false;
            }
            // Keyboard parity with the mouse: start, retry and back-out without
            // having to reach for the pointer.
@@ -1302,7 +1852,15 @@
                bird.up();
                return;
            }
-           
+           if (gameState === 'ready') {
+               beginFlight();
+               return;
+           }
+           if (gameState === 'paused') {
+               resumeGame();
+               return;
+           }
+
            if (gameState === 'entering_name') return;
 
            let btnWidth, btnHeight;
@@ -1332,13 +1890,15 @@
                }
            } else if (gameState === 'over') {
                if (overInputLock > 0) return;
-               btnWidth = min(width * 0.7, 400);
-               btnHeight = height * 0.08;
-               let step = btnHeight + 20;
-               if (isMouseOverRect(width/2, height*0.7, btnWidth, btnHeight)) {
+               let L = overLayout();
+               btnWidth = L.btnWidth;
+               btnHeight = L.btnHeight;
+               let base = L.base, step = L.step;
+               if (isMouseOverRect(width/2, base, btnWidth, btnHeight)) {
                    startGame();
-               }
-               if (isMouseOverRect(width/2, height*0.7 + step, btnWidth, btnHeight)) {
+               } else if (isMouseOverRect(width/2, base + step, btnWidth, btnHeight)) {
+                   shareScore();
+               } else if (isMouseOverRect(width/2, base + step * 2, btnWidth, btnHeight)) {
                    if (stackedMode) {
                        stackedMode = false;
                        gameState = 'start';
@@ -1346,8 +1906,7 @@
                        midnightMode = !midnightMode;
                        startGame();
                    }
-               }
-               if (isMouseOverRect(width/2, height*0.7 + step * 2, btnWidth, btnHeight)) {
+               } else if (isMouseOverRect(width/2, base + step * 3, btnWidth, btnHeight)) {
                    leaderboardTab = currentMode();
                    gameState = 'leaderboard';
                }
@@ -1360,15 +1919,15 @@
                    }
                }
                btnWidth = min(width * 0.7, 400);
-               btnHeight = height * 0.08;
+               btnHeight = max(42, height * 0.07);
                if (isMouseOverRect(width/2, height*0.9, btnWidth, btnHeight)) {
                    gameState = 'start';
                }
            }
        }
-       
+
        function startGame() {
-           gameState = 'play';
+           gameState = 'ready';
            pipes = [];
            confetti = [];
            scorePopups = [];
@@ -1376,6 +1935,7 @@
            neonTrail = [];
            shieldParticles = [];
            hazards = [];
+           rain = [];
            powerUp = null;
            hasShield = false;
            shieldGraceFrames = 0;
@@ -1383,19 +1943,22 @@
            gameOverAlpha = 0;
            displayScore = 0;
            lastScoreWasHighScore = false;
+           lastRunWasPersonalBest = false;
            score = 0;
+           simAcc = 0;
+           simFrame = 0;
            bird.reset();
            pipes.push(new Pipe(null));
            clouds = [];
            for (let i = 0; i < 3; i++) {
-               clouds.push(new Cloud(random(width, width * 1.5), random(height * 0.05, height * 0.25)));
+               clouds.push(new Cloud(random(width * 0.2, width * 1.3), random(height * 0.05, height * 0.25)));
            }
            if (stackedMode) {
                stackedShapes = [];
                for (let i = 0; i < 14; i++) stackedShapes.push(new StackedShape());
            }
        }
-       
+
        // Recolour a sprite's opaque pixels to a single cycling hue.
        //
        // tint() can't do this: it multiplies, so tinting the blue/yellow duck
@@ -1436,10 +1999,10 @@
                push();
                translate(this.x, this.y);
                let angle = map(this.velocity, -10, 15, -PI / 4, PI / 4);
-               if (gameState !== 'play') angle = 0;
+               if (gameState !== 'play' && gameState !== 'paused') angle = 0;
                rotate(angle);
                imageMode(CENTER);
-               if (gameState === 'play') {
+               if (gameState === 'play' || gameState === 'paused') {
                    let squashY = map(constrain(this.velocity, -10, 15), -10, 15, 0.82, 1.15);
                    scale(2 - squashY, squashY);
                }
@@ -1454,7 +2017,7 @@
                }
                pop();
 
-               if (gameState === 'play' && hasShield) {
+               if ((gameState === 'play' || gameState === 'paused') && hasShield) {
                    push();
                    noFill();
                    stroke(255, 215, 60, 180 + sin(frameCount * 0.3) * 60);
@@ -1463,9 +2026,9 @@
                    pop();
                }
             }
-           up() { this.velocity = this.lift; }
+           up() { this.velocity = this.lift; Sfx.flap(); }
        }
-       
+
        function drawStar(x, y, radius1, radius2, npoints) {
            let angle = TWO_PI / npoints;
            let halfAngle = angle / 2.0;
@@ -1524,7 +2087,10 @@
                this.hue = random([348, 356, 8]);
            }
            update() {
-               if (this.warn > 0) this.warn--;
+               if (this.warn > 0) {
+                   this.warn--;
+                   if (this.warn === 0) Sfx.laser();
+               }
                else if (this.active > 0) this.active--;
                else if (this.fade > 0) this.fade--;
            }
@@ -1548,7 +2114,7 @@
                        rect(hx + 22, this.y + this.thickness / 2 - 4, 22, 4);
                    }
                    textAlign(CENTER, CENTER);
-                   textFont('Press Start 2P');
+                   textFont(PIXEL_FONT);
                    textSize(this.thickness * 0.5);
                    fill(0, 0, 100, blink);
                    text('!', width * 0.05, this.y);
@@ -1717,20 +2283,20 @@
 
                if (!previousPipe) {
                    let gapCenterY = height / 2;
-                   let topMin = gapCenterY - this.spacing / 2 - height * 0.05; 
+                   let topMin = gapCenterY - this.spacing / 2 - height * 0.05;
                    let topMax = gapCenterY - this.spacing / 2 + height * 0.05;
                    this.top = random(topMin, topMax);
                } else {
                    let minTop = safeMargin;
                    let maxTop = height - this.spacing - safeMargin;
-                   
-                   const maxJump = height * 0.25; 
+
+                   const maxJump = height * 0.25;
                    let previousTop = previousPipe.top;
-                   
+
                    minTop = max(minTop, previousTop - maxJump);
                    maxTop = min(maxTop, previousTop + maxJump);
 
-                   if (minTop >= maxTop) { 
+                   if (minTop >= maxTop) {
                        minTop = safeMargin;
                        maxTop = height - this.spacing - safeMargin;
                    }
@@ -1739,7 +2305,7 @@
 
                this.bottom = height - (this.top + this.spacing);
            }
-           
+
            show() {
                if (stackedMode) { this.showStacked(); return; }
                noStroke();
@@ -1799,28 +2365,28 @@
            offscreen() { return this.x < -this.w; }
            hits(bird) { let r = bird.size / 4; if (bird.y - r < this.top || bird.y + r > height - this.bottom) { if (bird.x + r > this.x && bird.x - r < this.x + this.w) { return true; } } return false; }
        }
-       
+
        class Cloud {
            constructor(x, y) {
                this.x = x;
                this.y = y;
                this.speed = random(0.2, 0.8);
-               
+
                if (midnightMode) {
                    this.img = random(nightCloudImgs);
                } else {
                    this.img = random(dayCloudImgs);
                }
-               
+
                this.w = random(width * 0.08, width * 0.15);
                this.h = this.w * (this.img.height / this.img.width);
            }
-           
+
            show() {
                imageMode(CORNER);
                image(this.img, this.x, this.y, this.w, this.h);
            }
-           
+
            update() {
                this.x -= this.speed;
                if (midnightMode) {
@@ -1832,14 +2398,14 @@
                }
            }
        }
-       
+
        class Rain {
            constructor(x, y) { this.x = x; this.y = y; this.len = random(14, 26); this.speed = random(9, 17); this.slant = random(2.5, 5); }
            fall() { this.y += this.speed; this.x -= this.slant; }
            show() { stroke(195, 205, 255, 165); strokeWeight(2); line(this.x, this.y, this.x - this.slant * 1.6, this.y + this.len); }
            offscreen() { return this.y > height || this.x < -30; }
        }
-       
+
        class Confetti {
            constructor(x, y) { this.x = x; this.y = y; this.size = random(5, 10); this.color = random([color(255,100,100),color(100,255,100),color(255,255,100),color(100,255,255)]); this.speedY = random(1, 4); this.speedX = random(-2, 2); }
            update() { this.y += this.speedY; this.x += this.speedX; }
@@ -1852,7 +2418,7 @@
            update() { this.y -= 1.5; this.life--; this.alpha = map(this.life, 0, 40, 0, 255); }
            show() {
                push();
-               textFont('Press Start 2P');
+               textFont(PIXEL_FONT);
                textSize(20);
                textAlign(CENTER, CENTER);
                fill(255, 255, 255, this.alpha);
