@@ -316,7 +316,7 @@
 
 <script>
        // Your p5.js game code
-       const DEPLOY_VERSION = '1.15.2';
+       const DEPLOY_VERSION = '1.16.0';
        const SHARE_URL = 'https://highflygame-1ac8f.web.app/';
        // p5 drops the font name straight into the canvas font string. Unquoted,
        // "Press Start 2P" is invalid CSS (a name part can't start with a
@@ -388,9 +388,26 @@
        // down.
        const SIM_STEP_MS = 1000 / 60;
        const STAR_SPEED = 1.5;
-       // Keep at 1: the drawn duck must match its hitbox, or it can visibly
-       // overlap a pipe and survive, which feels like a glitch.
-       const DUCK_DRAW_SCALE = 1;
+
+       // --- Duck skins + flight picker (added in 1.16.0) ---
+       // Each skin has a Day version and a magenta (Midnight/STACKED) version.
+       // All share the original 500x500 framing, so size and hitbox never
+       // change. The choice lives in memory only: a page refresh resets it
+       // to Classic, as requested.
+       const SKINS = [
+           { id: 'classic', name: 'Classic' },
+           { id: 'solid', name: 'Solid' },
+           { id: 'bold', name: 'Bold' },
+           { id: 'soft', name: 'Soft' },
+           { id: 'pixel', name: '8-Bit', pixel: true }
+       ];
+       let skinIdx = 0;
+       let selMode = 'day';
+       const LEVELS = [
+           { id: 'day', label: 'DAY' },
+           { id: 'night', label: 'MIDNIGHT' },
+           { id: 'stacked', label: 'STACKED' }
+       ];
        let simAcc = 0;
        let simFrame = 0;
 
@@ -525,6 +542,12 @@
        function preload() {
            birdImg = loadImage("assets/dux.png");
            secretBirdImg = loadImage("assets/dux-magenta.png");
+           SKINS[0].day = birdImg;
+           SKINS[0].mag = secretBirdImg;
+           for (let i = 1; i < SKINS.length; i++) {
+               SKINS[i].day = loadImage(`assets/skins/${SKINS[i].id}-day.png`);
+               SKINS[i].mag = loadImage(`assets/skins/${SKINS[i].id}-magenta.png`);
+           }
            titleImg = loadImage("assets/title.png");
            sunImg = loadImage("assets/sun.png");
            moonImg = loadImage("assets/moon.png");
@@ -671,6 +694,9 @@
            if (gameState === 'start') {
                // Menu shows its own cycling backdrop rather than any one mode.
                drawMenuBackground();
+           } else if (gameState === 'select') {
+               // The picker shows the level you have selected, live.
+               drawBackdrop(MAIN, selMode, frameCount * 1.2, frameCount, true);
            } else {
                if (stackedMode && gameState === 'play') stackedHue = (stackedHue + 1.1) % 360;
                drawBackdrop(MAIN, currentMode(), bgScroll, frameCount, false);
@@ -692,9 +718,10 @@
                pop();
                return;
            }
-           if (gameState !== 'start' && stackedMode) drawStackedScenery();
+           const inMenu = gameState === 'start' || gameState === 'select';
+           if (!inMenu && stackedMode) drawStackedScenery();
 
-           if (gameState !== 'start' && !stackedMode) {
+           if (!inMenu && !stackedMode) {
                 for (let cloud of clouds) {
                     cloud.show();
                     if (gameState === 'play') { for (let s = 0; s < simSteps; s++) cloud.update(); }
@@ -710,6 +737,8 @@
                bird.hover();
                bird.show();
                drawStartScreen();
+           } else if (gameState === 'select') {
+               drawSelectScreen();
            } else if (gameState === 'ready') {
                drawReadyScreen();
            } else if (gameState === 'play') {
@@ -785,7 +814,7 @@
            }
            pop();
 
-           if (gameState === 'start' || gameState === 'over' || gameState === 'leaderboard') {
+           if (gameState === 'start' || gameState === 'select' || gameState === 'over' || gameState === 'leaderboard') {
                drawSoundButton();
            }
            drawToast();
@@ -1460,10 +1489,10 @@
        // STACKED), so they shrink and the stack is anchored to the bottom to
        // stay on screen.
        function startMenuLayout() {
-           let btnWidth = min(width * 0.7, 400);
-           let btnHeight = max(42, height * 0.068);
-           let step = btnHeight + 14;
-           return { btnWidth, btnHeight, step, count: 4, base: height * 0.94 - btnHeight / 2 - step * 3 };
+           let btnWidth = min(width * 0.72, 400);
+           let btnHeight = max(52, height * 0.085);
+           let step = btnHeight + 18;
+           return { btnWidth, btnHeight, step, count: 2, base: height * 0.86 - btnHeight / 2 - step };
        }
 
        // Game over also has 4 buttons now (Fly Again / Share / mode switch /
@@ -1498,17 +1527,9 @@
            fitTextSize(bestLine, max(11, height * 0.017), width * 0.94);
            text(bestLine, width / 2, L.base - L.btnHeight / 2 - height * 0.035);
 
-           let btnWidth = L.btnWidth;
-           let btnHeight = L.btnHeight;
-           let base = L.base;
-           let step = L.step;
-           let sBy1 = base, sBy2 = base + step, sBy3 = base + step * 2;
-           drawButton("Start Flying", width / 2, sBy1, btnWidth, btnHeight, isMouseOverRect(width / 2, sBy1, btnWidth, btnHeight));
-           drawButton("Midnight Flight", width / 2, sBy2, btnWidth, btnHeight, isMouseOverRect(width / 2, sBy2, btnWidth, btnHeight));
-           drawButton("Leaderboard", width / 2, sBy3, btnWidth, btnHeight, isMouseOverRect(width / 2, sBy3, btnWidth, btnHeight));
-
-           let sBy4 = base + step * 3;
-           drawStackedButton("⚡ STACKED ⚡", width / 2, sBy4, btnWidth, btnHeight, isMouseOverRect(width / 2, sBy4, btnWidth, btnHeight));
+           drawStackedButton("FLY NOW", width / 2, L.base, L.btnWidth, L.btnHeight, isMouseOverRect(width / 2, L.base, L.btnWidth, L.btnHeight));
+           let lbH = L.btnHeight * 0.78;
+           drawButton("Leaderboard", width / 2, L.base + L.step, L.btnWidth * 0.8, lbH, isMouseOverRect(width / 2, L.base + L.step, L.btnWidth * 0.8, lbH));
 
            drawDuxLink();
 
@@ -1518,6 +1539,132 @@
            textAlign(RIGHT, BOTTOM);
            textFont('Inter');
            text(`v${DEPLOY_VERSION}`, width - 10, height - 10);
+       }
+
+
+       // ===== Choose your flight: level + duck =====
+       function selectLayout() {
+           const W = width, H = height;
+           const lvW = min(W * 0.29, 170), lvH = max(48, H * 0.065), gap = min(W * 0.03, 14);
+           const lvY = H * 0.27;
+           const levels = LEVELS.map((lv, i) => ({ id: lv.id, label: lv.label, x: W / 2 + (i - 1) * (lvW + gap), y: lvY, w: lvW, h: lvH }));
+           const duckY = H * 0.5, duckS = min(H * 0.17, W * 0.42);
+           const arrS = max(52, H * 0.07), arrDX = min(W * 0.36, 230);
+           const goW = min(W * 0.72, 400), goH = max(56, H * 0.085);
+           return {
+               titleY: H * 0.12, levelLabelY: H * 0.205, duckLabelY: H * 0.37,
+               levels, duckY, duckS,
+               left: { x: W / 2 - arrDX, y: duckY, w: arrS, h: arrS },
+               right: { x: W / 2 + arrDX, y: duckY, w: arrS, h: arrS },
+               nameY: H * 0.62,
+               go: { x: W / 2, y: H * 0.76, w: goW, h: goH },
+               back: { x: W / 2, y: H * 0.76 + goH / 2 + 14 + max(42, H * 0.055) / 2, w: goW * 0.6, h: max(42, H * 0.055) }
+           };
+       }
+
+       function pixelLabel(t, x, y, size, col) {
+           push();
+           textFont(PIXEL_FONT);
+           textAlign(CENTER, CENTER);
+           fitTextSize(t, size, width * 0.9);
+           stroke(0);
+           strokeWeight(4);
+           fill(col || 255);
+           text(t, x, y);
+           pop();
+       }
+
+       function drawArrowButton(r, dir) {
+           const hov = isMouseOverRect(r.x, r.y, r.w, r.h);
+           push();
+           rectMode(CENTER);
+           stroke(255);
+           strokeWeight(3);
+           fill(hov ? color(100, 140, 255) : color(60, 100, 255));
+           rect(r.x, r.y, r.w, r.h, 10);
+           noStroke();
+           fill(255);
+           const s = r.w * 0.22;
+           if (dir < 0) triangle(r.x + s * 0.7, r.y - s, r.x + s * 0.7, r.y + s, r.x - s, r.y);
+           else triangle(r.x - s * 0.7, r.y - s, r.x - s * 0.7, r.y + s, r.x + s, r.y);
+           pop();
+       }
+
+       function drawSelectScreen() {
+           const L = selectLayout();
+           push();
+           noStroke();
+           fill(0, 0, 0, 70);
+           rect(0, 0, width, height);
+           pop();
+           pixelLabel('CHOOSE YOUR FLIGHT', width / 2, L.titleY, height * 0.032, color(255, 215, 60));
+           pixelLabel('LEVEL', width / 2, L.levelLabelY, height * 0.02);
+           for (const lv of L.levels) {
+               const on = lv.id === selMode;
+               const hov = isMouseOverRect(lv.x, lv.y, lv.w, lv.h);
+               if (lv.id === 'stacked' && on) {
+                   drawStackedButton(lv.label, lv.x, lv.y, lv.w, lv.h, hov);
+               } else {
+                   push();
+                   rectMode(CENTER);
+                   stroke(on ? 255 : 200);
+                   strokeWeight(on ? 4 : 2);
+                   fill(on ? color(245, 160, 20) : (hov ? color(70, 90, 170) : color(30, 40, 90, 220)));
+                   rect(lv.x, lv.y, lv.w, lv.h, 10);
+                   noStroke();
+                   fill(255);
+                   textFont(PIXEL_FONT);
+                   textAlign(CENTER, CENTER);
+                   fitTextSize(lv.label, lv.h * 0.26, lv.w * 0.86);
+                   text(lv.label, lv.x, lv.y);
+                   pop();
+               }
+           }
+           pixelLabel('DUCK', width / 2, L.duckLabelY, height * 0.02);
+           // duck preview
+           const skin = SKINS[skinIdx];
+           const img = selMode === 'day' ? skin.day : skin.mag;
+           push();
+           imageMode(CENTER);
+           const bob = sin(frameCount * 0.06) * 6;
+           noStroke();
+           fill(255, 255, 255, 40);
+           ellipse(width / 2, L.duckY, L.duckS * 1.25);
+           const ctx0 = drawingContext.imageSmoothingEnabled;
+           if (skin.pixel) drawingContext.imageSmoothingEnabled = false;
+           if (img) image(img, width / 2, L.duckY + bob, L.duckS, L.duckS);
+           drawingContext.imageSmoothingEnabled = ctx0;
+           pop();
+           drawArrowButton(L.left, -1);
+           drawArrowButton(L.right, 1);
+           pixelLabel(skin.name, width / 2, L.nameY, height * 0.026);
+           // dots
+           push();
+           noStroke();
+           const dS = 10, dG = 18, dx0 = width / 2 - (SKINS.length - 1) * dG / 2;
+           for (let i = 0; i < SKINS.length; i++) {
+               fill(i === skinIdx ? 255 : color(255, 255, 255, 90));
+               rect(dx0 + i * dG - dS / 2, L.nameY + height * 0.035, dS, dS);
+           }
+           pop();
+           if (selMode === 'stacked') drawStackedButton('GO!', L.go.x, L.go.y, L.go.w, L.go.h, isMouseOverRect(L.go.x, L.go.y, L.go.w, L.go.h));
+           else drawButton('GO!', L.go.x, L.go.y, L.go.w, L.go.h, isMouseOverRect(L.go.x, L.go.y, L.go.w, L.go.h), [34, 170, 90], [52, 199, 110]);
+           drawButton('Back', L.back.x, L.back.y, L.back.w, L.back.h, isMouseOverRect(L.back.x, L.back.y, L.back.w, L.back.h));
+       }
+
+       function openSelect() {
+           selMode = gameState === 'start' ? selMode : currentMode();
+           gameState = 'select';
+       }
+
+       function startSelected() {
+           midnightMode = selMode === 'night';
+           stackedMode = selMode === 'stacked';
+           startGame();
+       }
+
+       function cycleSkin(d) {
+           skinIdx = (skinIdx + d + SKINS.length) % SKINS.length;
        }
 
        function drawGameOverScreen() {
@@ -1574,13 +1721,7 @@
                drawButton("Fly Again", width / 2, gBy1, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy1, btnWidth, btnHeight));
            }
            drawButton("Share Score", width / 2, gBy2, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy2, btnWidth, btnHeight), [34, 170, 90], [52, 199, 110]);
-           if (stackedMode) {
-               drawButton("Exit Stacked", width / 2, gBy3, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy3, btnWidth, btnHeight));
-           } else if (midnightMode) {
-               drawButton("Day Flight", width / 2, gBy3, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy3, btnWidth, btnHeight));
-           } else {
-               drawButton("Midnight Flight", width / 2, gBy3, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy3, btnWidth, btnHeight));
-           }
+           drawButton("Change Flight", width / 2, gBy3, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy3, btnWidth, btnHeight));
            drawButton("Leaderboard", width / 2, gBy4, btnWidth, btnHeight, isMouseOverRect(width / 2, gBy4, btnWidth, btnHeight));
 
            drawDuxLink();
@@ -2040,14 +2181,14 @@
            }
            Sfx.unlock();
 
-           if (gameState === 'start' || gameState === 'over' || gameState === 'leaderboard') {
+           if (gameState === 'start' || gameState === 'select' || gameState === 'over' || gameState === 'leaderboard') {
                let r = soundButtonRect();
                if (isMouseOverRect(r.x, r.y, r.w, r.h)) {
                    Sfx.toggle();
                    showToast(Sfx.isMuted() ? 'Sound off' : 'Sound on');
                    return false;
                }
-               if (isMouseOverLink()) {
+               if (gameState !== 'select' && isMouseOverLink()) {
                    window.open('https://www.dux-soup.com/', '_blank');
                    return false;
                }
@@ -2093,7 +2234,7 @@
            }
            if (gameState === 'ready') {
                if (flap || confirm) { beginFlight(); return false; }
-               if (keyCode === ESCAPE) { stackedMode = false; gameState = 'start'; return false; }
+               if (keyCode === ESCAPE) { openSelect(); return false; }
                return;
            }
            if (gameState === 'paused') {
@@ -2108,9 +2249,16 @@
            // Keyboard parity with the mouse: start, retry and back-out without
            // having to reach for the pointer.
            if (gameState === 'start' && confirm) {
-               midnightMode = false; stackedMode = false;
-               startGame();
+               openSelect();
                return false;
+           }
+           if (gameState === 'select') {
+               if (confirm) { startSelected(); return false; }
+               if (keyCode === ESCAPE) { gameState = 'start'; return false; }
+               if (keyCode === LEFT_ARROW) { cycleSkin(-1); return false; }
+               if (keyCode === RIGHT_ARROW) { cycleSkin(1); return false; }
+               if (key === '1' || key === '2' || key === '3') { selMode = LEVELS[int(key) - 1].id; return false; }
+               return;
            }
            if (gameState === 'over' && confirm) {
                if (overInputLock > 0) return false;
@@ -2122,8 +2270,7 @@
                return false;
            }
            if (gameState === 'over' && keyCode === ESCAPE) {
-               stackedMode = false;
-               gameState = 'start';
+               openSelect();
                return false;
            }
        }
@@ -2147,28 +2294,21 @@
            let btnWidth, btnHeight;
            if (gameState === 'start') {
                let L = startMenuLayout();
-               btnWidth = L.btnWidth;
-               btnHeight = L.btnHeight;
-               let base = L.base;
-               let step = L.step;
-               if (isMouseOverRect(width/2, base, btnWidth, btnHeight)) {
-                   midnightMode = false;
-                   stackedMode = false;
-                   startGame();
-               }
-               if (isMouseOverRect(width/2, base + step, btnWidth, btnHeight)) {
-                   midnightMode = true;
-                   stackedMode = false;
-                   startGame();
-               }
-               if (isMouseOverRect(width/2, base + step * 2, btnWidth, btnHeight)) {
+               if (isMouseOverRect(width / 2, L.base, L.btnWidth, L.btnHeight)) {
+                   openSelect();
+               } else if (isMouseOverRect(width / 2, L.base + L.step, L.btnWidth * 0.8, L.btnHeight * 0.78)) {
                    gameState = 'leaderboard';
                }
-               if (isMouseOverRect(width/2, base + step * 3, btnWidth, btnHeight)) {
-                   midnightMode = false;
-                   stackedMode = true;
-                   startGame();
+           } else if (gameState === 'select') {
+               let L = selectLayout();
+               for (const lv of L.levels) {
+                   if (isMouseOverRect(lv.x, lv.y, lv.w, lv.h)) { selMode = lv.id; return; }
                }
+               if (isMouseOverRect(L.left.x, L.left.y, L.left.w, L.left.h)) { cycleSkin(-1); return; }
+               if (isMouseOverRect(L.right.x, L.right.y, L.right.w, L.right.h)) { cycleSkin(1); return; }
+               if (isMouseOverRect(width / 2, L.duckY, L.duckS, L.duckS)) { cycleSkin(1); return; }
+               if (isMouseOverRect(L.go.x, L.go.y, L.go.w, L.go.h)) { startSelected(); return; }
+               if (isMouseOverRect(L.back.x, L.back.y, L.back.w, L.back.h)) { gameState = 'start'; return; }
            } else if (gameState === 'over') {
                if (overInputLock > 0) return;
                let L = overLayout();
@@ -2180,13 +2320,7 @@
                } else if (isMouseOverRect(width/2, base + step, btnWidth, btnHeight)) {
                    shareScore();
                } else if (isMouseOverRect(width/2, base + step * 2, btnWidth, btnHeight)) {
-                   if (stackedMode) {
-                       stackedMode = false;
-                       gameState = 'start';
-                   } else {
-                       midnightMode = !midnightMode;
-                       startGame();
-                   }
+                   openSelect();
                } else if (isMouseOverRect(width/2, base + step * 3, btnWidth, btnHeight)) {
                    leaderboardTab = currentMode();
                    gameState = 'leaderboard';
@@ -2237,43 +2371,6 @@
            }
        }
 
-       // Chunky two-tone retro outline around the duck (added in 1.15.1).
-       // The duck logo is thin line art, so on busy pixel backdrops it got
-       // lost. A dark outer ring plus a white inner ring reads on every
-       // background (light sky, night city, neon STACKED). The silhouettes are
-       // built once per sprite and colour, then stamped around the duck in a
-       // ring of offsets. Purely visual: size and hitbox are unchanged.
-       const duckOutlineCache = new Map();
-       function duckSilhouette(img, col) {
-           const key = (img === secretBirdImg ? 'm' : 'd') + col;
-           if (duckOutlineCache.has(key)) return duckOutlineCache.get(key);
-           if (!img || !img.width) return null;
-           const g = createGraphics(160, 160);
-           g.pixelDensity(1);
-           g.image(img, 0, 0, 160, 160);
-           g.drawingContext.globalCompositeOperation = 'source-in';
-           g.noStroke();
-           g.fill(col);
-           g.rect(0, 0, 160, 160);
-           g.drawingContext.globalCompositeOperation = 'source-over';
-           duckOutlineCache.set(key, g);
-           return g;
-       }
-       function drawDuckOutline(img, size) {
-           const dark = duckSilhouette(img, '#0b1033');
-           const light = duckSilhouette(img, '#ffffff');
-           if (!dark || !light) return;
-           const outer = max(3, size * 0.085), inner = max(2, size * 0.04);
-           for (let a = 0; a < 16; a++) {
-               const ang = a * TWO_PI / 16;
-               image(dark, cos(ang) * outer, sin(ang) * outer, size, size);
-           }
-           for (let a = 0; a < 12; a++) {
-               const ang = a * TWO_PI / 12;
-               image(light, cos(ang) * inner, sin(ang) * inner, size, size);
-           }
-       }
-
        // Recolour a sprite's opaque pixels to a single cycling hue.
        //
        // tint() can't do this: it multiplies, so tinting the blue/yellow duck
@@ -2296,12 +2393,15 @@
            return starBuf;
        }
 
-       // Day flies the original duck; Midnight and STACKED fly the magenta one.
-       // The menu always shows the default so the 5-tap star toggle reads
-       // against a known baseline.
+       // Day flies the blue/yellow/green duck; Midnight and STACKED fly the
+       // magenta one. The chosen skin (SKINS[skinIdx]) picks which art.
        function birdSpriteForMode() {
-           if (gameState === 'start') return birdImg;
-           return (stackedMode || midnightMode) ? secretBirdImg : birdImg;
+           const skin = SKINS[skinIdx];
+           let mode;
+           if (gameState === 'start') mode = 'day';
+           else if (gameState === 'select') mode = selMode;
+           else mode = currentMode();
+           return mode === 'day' ? skin.day : skin.mag;
        }
 
        class Bird {
@@ -2322,8 +2422,10 @@
                    scale(2 - squashY, squashY);
                }
 
-               const ds = this.size * DUCK_DRAW_SCALE;
-               drawDuckOutline(imgToShow, ds);
+               const ds = this.size;
+               const skin = SKINS[skinIdx];
+               const ctx0 = drawingContext.imageSmoothingEnabled;
+               if (skin.pixel) drawingContext.imageSmoothingEnabled = false;
                if (starMode) {
                    // Mario-style invincibility strobe: flash between the duck's
                    // own colours and a solid rainbow recolour of its shape.
@@ -2332,6 +2434,7 @@
                } else {
                    image(imgToShow, 0, 0, ds, ds);
                }
+               drawingContext.imageSmoothingEnabled = ctx0;
                pop();
 
                if ((gameState === 'play' || gameState === 'paused') && hasShield) {

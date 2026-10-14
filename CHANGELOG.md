@@ -11,6 +11,24 @@ Rules (enforced by `scripts/check.sh`):
 
 ---
 
+## [1.16.0] - 2026-10-14
+
+### Added
+- Duck picker. Five ducks: Classic, Solid, Bold (black lines and outline),
+  Soft (lighter fill, logo lines kept) and 8-Bit. Each part of the logo is
+  filled with its own color: front wing dark blue, back wing light blue,
+  body yellow, head green (magenta versions for Midnight and STACKED).
+  Your pick lasts until the page is refreshed. All ducks share the same
+  size and hitbox.
+- "Choose your flight" screen: pick the level (the background switches live)
+  and the duck, then GO. Keyboard: 1/2/3 level, arrows duck, Enter go.
+
+### Changed
+- Cleaner title screen: logo, duck, best scores, one FLY NOW button and
+  Leaderboard.
+- Game over buttons: Fly Again, Share Score, Change Flight, Leaderboard.
+- Removed the 1.15.1 duck outline (players preferred it without).
+
 ## [1.15.2] - 2026-10-14
 
 ### Fixed

@@ -29,7 +29,7 @@ Golden rule: **live always equals GitHub `main`.** The deploy script enforces it
 | Path | What it is | Deployed? |
 |---|---|---|
 | `index.html` | The entire game: markup, styles, Firebase leaderboard code and all game code (p5.js) | Yes |
-| `assets/` | Game art: duck, magenta duck, title logo, sun, moon, 3 clouds | Yes |
+| `assets/` | Game art: duck, magenta duck, title logo, sun, moon, 3 clouds; `assets/skins/` holds the 4 extra ducks (Day + magenta each) | Yes |
 | `og-image.jpg` | 1200x630 link-preview card shown when the URL is shared | Yes |
 | `favicon-32.png`, `apple-touch-icon.png`, `icon-192.png`, `icon-512.png` | Browser tab and home-screen icons | Yes |
 | `manifest.webmanifest` | Lets "Add to Home Screen" open the game full-screen | Yes |
@@ -75,10 +75,11 @@ before shipping this as an official Dux-Soup feature.
 
 ### Test checklist (two minutes, on a phone-sized screen)
 
-- [ ] Home screen: logo, best scores, 4 buttons and the version number all visible
-- [ ] Start Flying shows "TAP TO FLAP" and waits for a tap
+- [ ] Home screen: logo, duck, best scores, FLY NOW, Leaderboard and the version number visible
+- [ ] FLY NOW opens Choose Your Flight: level buttons switch the background, arrows switch the duck
+- [ ] GO shows "TAP TO FLAP" and waits for a tap
 - [ ] Score counts up passing pipes; pause button pauses; tap resumes
-- [ ] Crash shows Game Over with Fly Again / Share Score / mode switch / Leaderboard
+- [ ] Crash shows Game Over with Fly Again / Share Score / Change Flight / Leaderboard
 - [ ] Midnight and STACKED both start and play
 - [ ] Leaderboard shows all three tabs with names and scores
 - [ ] Sound button toggles sound
