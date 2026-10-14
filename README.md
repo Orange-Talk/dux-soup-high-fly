@@ -39,6 +39,7 @@ Golden rule: **live always equals GitHub `main`.** The deploy script enforces it
 | `CHANGELOG.md` | Every release and what changed | No |
 | `HANDOFF.md` | Ownership, leaderboard data, security, how to move it to a Dux-Soup account | No |
 | `CLAUDE.md` | Instructions for AI assistants working on this repo | No |
+| `docs/` | Plans and source art for future features (see `docs/BOSS-PLAN.md`) | No |
 | `Duxsoupgame prev builds/` | Old builds and art, kept for reference only | No |
 
 There is no build step, no npm install, and no server code. It is static files.

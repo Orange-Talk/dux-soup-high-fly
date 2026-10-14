@@ -11,7 +11,8 @@
       "HANDOFF.md",
       "CLAUDE.md",
       "scripts/**",
-      "Duxsoupgame prev builds/**"
+      "Duxsoupgame prev builds/**",
+      "docs/**"
     ],
     "headers": [
       {
