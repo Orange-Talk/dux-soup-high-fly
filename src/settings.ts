@@ -1,9 +1,21 @@
 export type TouchMode = 'swipe' | 'buttons' | 'off';
 
+export interface TouchBtnCustom {
+  /** x offset from stage left (can be negative on widescreen phones) */
+  x: number;
+  /** y in 0..720 stage coords */
+  y: number;
+  /** scale multiplier (0.6 .. 1.65) */
+  s: number;
+  /** whether button is enabled in this mode */
+  on: boolean;
+}
+
 export interface Settings {
   music: number; sfx: number; ghost: boolean; shake: boolean; reducedFlash: boolean;
   handling: 'relaxed' | 'normal' | 'fast'; rounds: number; garbageDelay: number; speedUpEvery: number;
   touch: TouchMode;
+  touchLayout?: Record<string, TouchBtnCustom>;
 }
 export interface Record_ {
   versus: Record<string, number>;
@@ -16,7 +28,7 @@ export interface Record_ {
 }
 
 const KEY = 'blockclash.v1';
-const defaults: Settings = { music: 0.6, sfx: 0.75, ghost: true, shake: true, reducedFlash: false, handling: 'normal', rounds: 2, garbageDelay: 1100, speedUpEvery: 40, touch: 'swipe' };
+const defaults: Settings = { music: 0.6, sfx: 0.75, ghost: true, shake: true, reducedFlash: false, handling: 'normal', rounds: 2, garbageDelay: 1100, speedUpEvery: 40, touch: 'swipe', touchLayout: {} };
 const defaultRec = (): Record_ => ({ versus: { nong: 0, nang: 0 }, cpu: {}, online: { win: 0, loss: 0 }, matches: 0, quads: 0, bestCombo: 0, unlocked: [] });
 
 function normalizeTouch(v: any): TouchMode {

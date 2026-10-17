@@ -121,11 +121,13 @@ export class Battle {
     this.cutin = null;
     this.koOrder = [];
     this.roundWinner = null;
-    const rules = { ...DEFAULT_RULES, garbageDelay: settings.garbageDelay };
+    const isTouchDev = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
     for (const s of this.sides) {
       s.pending = null; s.koShown = false;
       s.bfx = new BoardFx();
       if (s.cfg.kind !== 'remote') {
+        const touchAssist = isTouchDev && s.cfg.kind === 'human' && settings.touch !== 'off';
+        const rules = { ...DEFAULT_RULES, garbageDelay: settings.garbageDelay, lockDelay: touchAssist ? 720 : DEFAULT_RULES.lockDelay, maxLockResets: touchAssist ? 20 : DEFAULT_RULES.maxLockResets };
         s.board = new Board(seed, s.cfg.char, s.style, rules, (seed * 31 + s.idx * 7919) >>> 0);
         s.board.handling = HANDLING_PRESETS[settings.handling] || HANDLING_PRESETS.normal;
         s.board.frozen = true;
@@ -583,7 +585,7 @@ export class Battle {
     this.drawBanner(ctx);
     if (this.fx.flash > 0.01) {
       ctx.fillStyle = this.fx.flashColor; ctx.globalAlpha = this.fx.flash * 0.5;
-      ctx.fillRect(0, 0, W, H); ctx.globalAlpha = 1;
+      ctx.fillRect(-300, 0, W + 600, H); ctx.globalAlpha = 1;
     }
   }
 

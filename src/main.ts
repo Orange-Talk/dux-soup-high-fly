@@ -24,18 +24,25 @@ const stage = $('#stage');
 
 // ---------------------------------------------------------------- scaling & mobile browser lockdown
 let scale = 1;
+let extraX = 0;
 function fit() {
   const vv = window.visualViewport;
   const vw = vv ? vv.width : window.innerWidth;
   const vh = vv ? vv.height : window.innerHeight;
   scale = Math.min(vw / W, vh / H);
+  extraX = Math.max(0, Math.min(260, Math.ceil((vw / scale - W) / 2)));
   stage.style.transform = `translate(-50%,-50%) scale(${scale})`;
   stage.style.transformOrigin = '50% 50%';
+  stage.style.setProperty('--extra-x', extraX + 'px');
+  const totalW = W + extraX * 2;
+  cv.style.left = -extraX + 'px';
+  cv.style.width = totalW + 'px';
   const dpr = Math.min(2, window.devicePixelRatio || 1);
   const k = Math.max(1, scale * dpr);
-  cv.width = Math.round(W * k); cv.height = Math.round(H * k);
-  ctx.setTransform(k, 0, 0, k, 0, 0);
+  cv.width = Math.round(totalW * k); cv.height = Math.round(H * k);
+  ctx.setTransform(k, 0, 0, k, extraX * k, 0);
   setDpr(k);
+  if (typeof touchEls !== 'undefined' && touchEls.length) updateTouch();
 }
 stage.style.left = '50%'; stage.style.top = '50%';
 window.addEventListener('resize', fit);
@@ -51,10 +58,9 @@ document.addEventListener('touchmove', (e) => {
   if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
   e.preventDefault();
 }, { passive: false });
-fit();
 
 // ---------------------------------------------------------------- screens
-type ScreenId = 'loading' | 'title' | 'menu' | 'cpu' | 'select' | 'vs' | 'battle' | 'pause' | 'results' | 'settings' | 'howto' | 'online';
+type ScreenId = 'loading' | 'title' | 'menu' | 'cpu' | 'select' | 'vs' | 'battle' | 'pause' | 'results' | 'settings' | 'howto' | 'online' | 'touchcfg';
 let screen: ScreenId = 'loading';
 const handlers: Partial<Record<ScreenId, (e: NavEvent) => void>> = {};
 const BACKABLE: ScreenId[] = ['cpu', 'select', 'howto', 'online'];
@@ -122,19 +128,20 @@ function setupAttract(mode: 'title' | 'menu') {
 }
 
 function drawBg(c: CanvasRenderingContext2D, t: number, dark: number) {
-  if (!art.bg) { c.fillStyle = '#0b0a20'; c.fillRect(0, 0, W, H); return; }
+  const rx = -extraX, rw = W + extraX * 2;
+  if (!art.bg) { c.fillStyle = '#0b0a20'; c.fillRect(rx, 0, rw, H); return; }
   const z = 1.03 + Math.sin(t * 0.07) * 0.015;
   const iw = art.bg.width, ih = art.bg.height;
-  const s = Math.max(W / iw, H / ih) * z;
+  const s = Math.max(rw / iw, H / ih) * z;
   const dw = iw * s, dh = ih * s;
   c.drawImage(art.bg, (W - dw) / 2 + Math.sin(t * 0.05) * 8, (H - dh) / 2, dw, dh);
-  c.fillStyle = `rgba(6,5,22,${dark})`; c.fillRect(0, 0, W, H);
+  c.fillStyle = `rgba(6,5,22,${dark})`; c.fillRect(rx, 0, rw, H);
   const g = c.createLinearGradient(0, 0, 0, H);
   g.addColorStop(0, 'rgba(6,5,22,0.55)'); g.addColorStop(0.35, 'rgba(6,5,22,0)'); g.addColorStop(0.8, 'rgba(6,5,22,0)'); g.addColorStop(1, 'rgba(6,5,22,0.6)');
-  c.fillStyle = g; c.fillRect(0, 0, W, H);
+  c.fillStyle = g; c.fillRect(rx, 0, rw, H);
   // drifting embers
-  for (let i = 0; i < 26; i++) {
-    const sx = (i * 197.3) % W, sp = 18 + (i % 7) * 7;
+  for (let i = 0; i < 30; i++) {
+    const sx = rx + ((i * 197.3) % rw), sp = 18 + (i % 7) * 7;
     const y = H - ((t * sp + i * 83) % (H + 40));
     const x = sx + Math.sin(t * 0.8 + i) * 18;
     const a = 0.35 + 0.35 * Math.sin(t * 2 + i);
@@ -453,12 +460,15 @@ let pauseMenu: Menu;
 function pause() {
   if (!battle || screen !== 'battle') return;
   if (mode !== 'online') battle.paused = true;
-  const touchToggle: MItem[] = (isTouch || settings.touch !== 'off') && mode !== 'versus'
-    ? [{ t: 'CONTROLS: ' + (settings.touch === 'buttons' ? 'BUTTONS' : 'SWIPE'), s: 'Tap to switch between Swipe & Buttons', act: () => { toggleTouchMode(); pause(); } }]
+  const touchItems: MItem[] = (isTouch || settings.touch !== 'off') && mode !== 'versus'
+    ? [
+        { t: 'CONTROLS: ' + (settings.touch === 'buttons' ? 'BUTTONS' : 'SWIPE'), s: 'Tap to switch between Swipe & Buttons', act: () => { toggleTouchMode(); pause(); } },
+        { t: 'CUSTOMIZE BUTTONS', s: 'Move, resize or hide mobile buttons', act: () => openTouchCustomizer('pause') },
+      ]
     : [];
   const items: MItem[] = mode === 'online'
-    ? [{ t: 'RESUME', act: resume }, ...touchToggle, { t: 'LEAVE MATCH', act: () => { resume(); net.leaveDuel(); goMenu(); } }]
-    : [{ t: 'RESUME', act: resume }, ...touchToggle, { t: 'RESTART MATCH', act: () => { resume(); if (lastCfg) startBattle(lastCfg[0], lastCfg[1]); } }, { t: 'SETTINGS', act: () => goSettings('pause') }, { t: 'QUIT TO MENU', act: () => { battle = null; goMenu(); } }];
+    ? [{ t: 'RESUME', act: resume }, ...touchItems, { t: 'LEAVE MATCH', act: () => { resume(); net.leaveDuel(); goMenu(); } }]
+    : [{ t: 'RESUME', act: resume }, ...touchItems, { t: 'RESTART MATCH', act: () => { resume(); if (lastCfg) startBattle(lastCfg[0], lastCfg[1]); } }, { t: 'SETTINGS', act: () => goSettings('pause') }, { t: 'QUIT TO MENU', act: () => { battle = null; goMenu(); } }];
   pauseMenu = new Menu($('#pausemenu'), items);
   audio.musicMode('quiet');
   show('pause', true);
@@ -526,6 +536,7 @@ const SET_ROWS: SetRow[] = [
   { k: 'SCREEN SHAKE', sub: 'Camera shake on big hits', get: () => (settings.shake ? 'ON' : 'OFF'), change: () => { settings.shake = !settings.shake; } },
   { k: 'FLASHING', sub: 'Full-screen flashes on supers and K.O.', get: () => (settings.reducedFlash ? 'REDUCED' : 'FULL'), change: () => { settings.reducedFlash = !settings.reducedFlash; } },
   { k: 'MOBILE CONTROLS', sub: 'Swipe gestures (default) or full Left/Right buttons', get: () => settings.touch.toUpperCase(), change: (d) => { settings.touch = cycle(['swipe', 'buttons', 'off'] as const, settings.touch, d); updateTouch(); } },
+  { k: 'BUTTON LAYOUT', sub: 'Drag, resize & show/hide mobile buttons', get: () => 'CUSTOMIZE', change: () => { openTouchCustomizer('settings'); } },
 ];
 function goSettings(from: ScreenId) { setFrom = from; setIdx = 0; paintSettings(); show('settings', from === 'pause'); }
 function paintSettings() {
@@ -540,7 +551,9 @@ function paintSettings() {
     el.addEventListener('click', (ev) => {
       const d = (ev.target as HTMLElement).closest('.arr') as HTMLElement | null;
       if (i === SET_ROWS.length) { leaveSettings(); return; }
-      SET_ROWS[i].change(d ? +d.dataset.d! : 1); save(); audio.play('menuMove'); paintSettings();
+      SET_ROWS[i].change(d ? +d.dataset.d! : 1);
+      if (screen !== 'settings') return;
+      save(); audio.play('menuMove'); paintSettings();
     });
   });
 }
@@ -553,8 +566,8 @@ handlers.settings = (e) => {
   const n = SET_ROWS.length + 1;
   if (e.a === 'up') { setIdx = (setIdx + n - 1) % n; audio.play('menuMove'); paintSettings(); }
   else if (e.a === 'down') { setIdx = (setIdx + 1) % n; audio.play('menuMove'); paintSettings(); }
-  else if ((e.a === 'left' || e.a === 'right') && setIdx < SET_ROWS.length) { SET_ROWS[setIdx].change(e.a === 'left' ? -1 : 1); save(); audio.play('menuMove'); paintSettings(); }
-  else if (e.a === 'confirm') { if (setIdx === SET_ROWS.length) leaveSettings(); else { SET_ROWS[setIdx].change(1); save(); audio.play('menuMove'); paintSettings(); } }
+  else if ((e.a === 'left' || e.a === 'right') && setIdx < SET_ROWS.length) { SET_ROWS[setIdx].change(e.a === 'left' ? -1 : 1); if (screen === 'settings') { save(); audio.play('menuMove'); paintSettings(); } }
+  else if (e.a === 'confirm') { if (setIdx === SET_ROWS.length) leaveSettings(); else { SET_ROWS[setIdx].change(1); if (screen === 'settings') { save(); audio.play('menuMove'); paintSettings(); } } }
   else if (e.a === 'back') leaveSettings();
 };
 
@@ -570,7 +583,7 @@ const HOW = [
   },
   {
     t: 'CONTROLS', cols: [
-      `<h5>PHONE · SWIPE &amp; BUTTONS</h5><table><tr><td>Slide left / right</td><td>Move</td></tr><tr><td>Tap screen</td><td>Rotate</td></tr><tr><td>Flick down</td><td>Hard drop</td></tr><tr><td>Hold down</td><td>Soft drop</td></tr><tr><td>Flick up / Tap Hold</td><td>Hold piece</td></tr><tr><td>Tap Super</td><td>Fire Super</td></tr></table><p style="margin-top:8px">Prefer buttons? Tap <b>SWIPE</b> at the top of a match (or in Settings) to switch to <b>BUTTONS</b> mode with Left/Right thumb controls.</p>`,
+      `<h5>PHONE · SWIPE &amp; BUTTONS</h5><table><tr><td>Slide left / right</td><td>Move</td></tr><tr><td>Tap screen</td><td>Rotate</td></tr><tr><td>Flick straight down</td><td>Hard drop</td></tr><tr><td>Hold down</td><td>Soft drop</td></tr><tr><td>Flick up / Tap Hold</td><td>Hold piece</td></tr><tr><td>Tap Super</td><td>Fire Super</td></tr></table><p style="margin-top:8px">Tap <b>SWIPE</b> at the top of a match to switch to <b>BUTTONS</b> mode, or open <b>Pause / Settings → Customize Buttons</b> to drag &amp; resize any button.</p>`,
       `<h5>KEYBOARD · P1 &amp; P2</h5><table><tr><td>P1 Move / Drop</td><td><kbd>A</kbd><kbd>D</kbd> / <kbd>S</kbd> <kbd>Space</kbd></td></tr><tr><td>P1 Rotate / Hold / Super</td><td><kbd>W</kbd><kbd>Q</kbd> / <kbd>E</kbd> / <kbd>R</kbd></td></tr><tr><td>P2 Move / Drop</td><td><kbd>←</kbd><kbd>→</kbd> / <kbd>↓</kbd> <kbd>Enter</kbd></td></tr><tr><td>P2 Rotate / Hold / Super</td><td><kbd>↑</kbd><kbd>/</kbd> / <kbd>Shift</kbd> / <kbd>.</kbd></td></tr></table><p style="margin-top:8px">Playing solo? Both key sets work, plus <kbd>Z</kbd><kbd>X</kbd> rotate, <kbd>C</kbd> hold, <kbd>V</kbd> super.</p>`,
       `<h5>CONTROLLER</h5><table><tr><td>Move / soft drop</td><td>D-pad or stick</td></tr><tr><td>Hard drop</td><td>D-pad ↑</td></tr><tr><td>Rotate right / left</td><td>Ⓐ / Ⓑ</td></tr><tr><td>Hold</td><td>Ⓧ or bumpers</td></tr><tr><td>Super</td><td>Ⓨ</td></tr><tr><td>Pause</td><td>Start</td></tr></table>`,
     ],
@@ -785,37 +798,71 @@ function onlineRematch() {
   if (net.theirs) net.onDuel?.(net.theirs);
 }
 
-// ---------------------------------------------------------------- touch controls
+// ---------------------------------------------------------------- touch controls & FPS-style HUD customizer
+type TouchModeKey = 'swipe' | 'buttons';
 interface TouchBtnDef {
   id: keyof typeof input.touch;
   icon: string;
   label: string;
   cls?: string;
   dpad?: boolean;
-  swipePos?: [number, number, number, number]; // x, y, w, h in SWIPE mode
-  btnPos: [number, number, number, number];    // x, y, w, h in BUTTONS mode
+  wing: 'left' | 'right';
+  swipe: [number, number, number, number, boolean];   // [x, y, w, h, defaultOn] in SWIPE mode
+  buttons: [number, number, number, number, boolean]; // [x, y, w, h, defaultOn] in BUTTONS mode
 }
 
 // Ergonomic landscape thumb arcs:
-// - SWIPE mode (default): uncrowded edge pills tucked in bottom corners, leaving the board & center open.
-// - BUTTONS mode (optional): Left thumb gets Left/Right rocker + Soft drop + Hold; Right thumb gets big Rotate + Drop + Turn + Super.
+// On wide phones (like iPhone 16), left/right buttons automatically shift outward into the widescreen side wings (`extraX`).
+// Every button can also be dragged anywhere, resized (60%–165%), or toggled ON/OFF in the Button Customizer.
 const TOUCH_BTNS: TouchBtnDef[] = [
-  // Left-hand movement cluster (BUTTONS mode only)
-  { id: 'left', icon: '◀', label: 'LEFT', cls: 'only-buttons', dpad: true, btnPos: [8, 514, 92, 92] },
-  { id: 'right', icon: '▶', label: 'RIGHT', cls: 'only-buttons', dpad: true, btnPos: [106, 514, 92, 92] },
-  { id: 'soft', icon: '▼', label: 'DOWN', cls: 'only-buttons', dpad: true, btnPos: [57, 614, 92, 78] },
-  // Left-hand utility (both modes, repositioned cleanly per mode)
-  { id: 'hold', icon: '⇄', label: 'HOLD', swipePos: [12, 468, 88, 74], btnPos: [12, 424, 88, 76] },
-  { id: 'ccw', icon: '⟲', label: 'TURN', cls: 'only-swipe', swipePos: [12, 554, 88, 74], btnPos: [1066, 452, 84, 84] },
-  // Right-hand action cluster
-  { id: 'cw', icon: '⟳', label: 'ROTATE', cls: 'only-buttons pri', btnPos: [1166, 510, 102, 102] },
-  { id: 'ccw', icon: '⟲', label: 'TURN', cls: 'only-buttons', btnPos: [1066, 452, 84, 84] },
-  { id: 'hard', icon: '⬇', label: 'DROP', cls: 'drp', swipePos: [1180, 554, 88, 74], btnPos: [1056, 554, 94, 94] },
-  { id: 'super', icon: '★', label: 'SUPER', cls: 'sup', swipePos: [1180, 468, 88, 74], btnPos: [1172, 412, 92, 80] },
+  { id: 'left',  icon: '◀', label: 'LEFT',   dpad: true, wing: 'left',  swipe: [8, 514, 92, 92, false],    buttons: [8, 514, 92, 92, true] },
+  { id: 'right', icon: '▶', label: 'RIGHT',  dpad: true, wing: 'left',  swipe: [106, 514, 92, 92, false],  buttons: [106, 514, 92, 92, true] },
+  { id: 'soft',  icon: '▼', label: 'DOWN',   dpad: true, wing: 'left',  swipe: [57, 614, 92, 78, false],   buttons: [57, 614, 92, 78, true] },
+  { id: 'hold',  icon: '⇄', label: 'HOLD',               wing: 'left',  swipe: [12, 468, 88, 74, true],    buttons: [12, 424, 88, 76, true] },
+  { id: 'ccw',   icon: '⟲', label: 'TURN',               wing: 'left',  swipe: [12, 554, 88, 74, true],    buttons: [1066, 452, 84, 84, true] },
+  { id: 'cw',    icon: '⟳', label: 'ROTATE', cls: 'pri', wing: 'right', swipe: [1166, 510, 102, 102, false], buttons: [1166, 510, 102, 102, true] },
+  { id: 'hard',  icon: '⬇', label: 'DROP',   cls: 'drp', wing: 'right', swipe: [1180, 554, 88, 74, true],  buttons: [1056, 554, 94, 94, true] },
+  { id: 'super', icon: '★', label: 'SUPER',  cls: 'sup', wing: 'right', swipe: [1180, 468, 88, 74, true],  buttons: [1172, 412, 92, 80, true] },
 ];
 
 const touchEls: { def: TouchBtnDef; el: HTMLButtonElement }[] = [];
 let superBtns: HTMLButtonElement[] = [];
+let cfgFrom: ScreenId = 'settings';
+let cfgMode: TouchModeKey = 'swipe';
+let cfgSelected: keyof typeof input.touch = 'hard';
+
+function getDefaultBtnState(def: TouchBtnDef, m: TouchModeKey) {
+  const base = m === 'buttons' ? def.buttons : def.swipe;
+  // In BUTTONS mode, ccw ('TURN') sits on the right cluster; in SWIPE mode it sits on the left
+  const wing = m === 'buttons' && def.id === 'ccw' ? 'right' : def.wing;
+  const wingShift = Math.min(extraX, 115);
+  const dx = wing === 'left' ? -wingShift : wingShift;
+  return { x: base[0] + dx, y: base[1], w: base[2], h: base[3], s: 1, on: base[4] };
+}
+
+function getBtnState(def: TouchBtnDef, m: TouchModeKey) {
+  const d = getDefaultBtnState(def, m);
+  const saved = settings.touchLayout?.[m + ':' + def.id];
+  const s = saved?.s ? Math.max(0.6, Math.min(1.65, saved.s)) : d.s;
+  const w = Math.round(d.w * s);
+  const h = Math.round(d.h * s);
+  const rawX = saved && typeof saved.x === 'number' ? saved.x : d.x;
+  const rawY = saved && typeof saved.y === 'number' ? saved.y : d.y;
+  const x = Math.max(-extraX + 4, Math.min(W + extraX - w - 4, rawX));
+  const y = Math.max(12, Math.min(H - h - 8, rawY));
+  const on = saved && typeof saved.on === 'boolean' ? saved.on : d.on;
+  return { x, y, w, h, s, on };
+}
+
+function ensureBtnCustom(def: TouchBtnDef, m: TouchModeKey) {
+  if (!settings.touchLayout) settings.touchLayout = {};
+  const key = m + ':' + def.id;
+  if (!settings.touchLayout[key]) {
+    const st = getBtnState(def, m);
+    settings.touchLayout[key] = { x: st.x, y: st.y, s: st.s, on: st.on };
+  }
+  return settings.touchLayout[key];
+}
 
 function setTouchControl(id: keyof typeof input.touch, v: boolean, el?: HTMLElement) {
   (input.touch as any)[id] = v;
@@ -831,9 +878,44 @@ function toggleTouchMode() {
   toast(settings.touch === 'buttons' ? 'BUTTONS MODE · Left/Right thumb controls' : 'SWIPE MODE · Slide, tap & flick');
 }
 
+function openTouchCustomizer(from: ScreenId) {
+  cfgFrom = from;
+  cfgMode = settings.touch === 'buttons' ? 'buttons' : 'swipe';
+  cfgSelected = 'hard';
+  audio.play('menuSelect');
+  show('touchcfg', true);
+  paintTouchCfg();
+}
+
+function paintTouchCfg() {
+  const def = TOUCH_BTNS.find((b) => b.id === cfgSelected) || TOUCH_BTNS[0];
+  const st = getBtnState(def, cfgMode);
+  $('#cfglbl').textContent = `${def.label} · ${Math.round(st.s * 100)}%`;
+  $('#cfgmode').textContent = `MODE: ${cfgMode.toUpperCase()}`;
+  $('#cfgtog').textContent = st.on ? 'HIDE' : 'SHOW';
+  for (const { def: b, el } of touchEls) {
+    el.classList.toggle('cfg-sel', screen === 'touchcfg' && b.id === cfgSelected);
+  }
+}
+
+function closeTouchCustomizer() {
+  save();
+  audio.play('menuSelect');
+  toast('Button layout saved');
+  if (cfgFrom === 'pause') pause();
+  else goSettings(setFrom);
+}
+handlers.touchcfg = (e) => { if (e.a === 'back' || e.a === 'pause') closeTouchCustomizer(); };
+
 function buildTouch() {
   const root = $('#touch');
   const dpadPtrs = new Map<number, { id: keyof typeof input.touch; el: HTMLButtonElement }>();
+  const pt = (e: PointerEvent): [number, number] => {
+    const r = stage.getBoundingClientRect();
+    return [(e.clientX - r.left) / scale, (e.clientY - r.top) / scale];
+  };
+
+  let dragState: { pid: number; def: TouchBtnDef; el: HTMLButtonElement; sx: number; sy: number; bx: number; by: number } | null = null;
 
   for (const b of TOUCH_BTNS) {
     const el = document.createElement('button');
@@ -842,15 +924,53 @@ function buildTouch() {
     el.innerHTML = `<span class="ic">${b.icon}</span><span class="lb">${b.label}</span>`;
     if (b.id === 'super') superBtns.push(el);
 
+    // Customizer drag & select support (active when screen === 'touchcfg')
+    el.addEventListener('pointerdown', (e) => {
+      if (screen !== 'touchcfg') return;
+      e.preventDefault(); e.stopPropagation();
+      cfgSelected = b.id;
+      audio.play('menuMove');
+      const [sx, sy] = pt(e);
+      const st = getBtnState(b, cfgMode);
+      dragState = { pid: e.pointerId, def: b, el, sx, sy, bx: st.x, by: st.y };
+      try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+      updateTouch();
+      paintTouchCfg();
+    }, true);
+
+    el.addEventListener('pointermove', (e) => {
+      if (screen !== 'touchcfg' || !dragState || dragState.pid !== e.pointerId) return;
+      e.preventDefault(); e.stopPropagation();
+      const [x, y] = pt(e);
+      const c = ensureBtnCustom(dragState.def, cfgMode);
+      const d = getDefaultBtnState(dragState.def, cfgMode);
+      const w = Math.round(d.w * c.s), h = Math.round(d.h * c.s);
+      c.x = Math.max(-extraX + 4, Math.min(W + extraX - w - 4, Math.round(dragState.bx + (x - dragState.sx))));
+      c.y = Math.max(12, Math.min(H - h - 8, Math.round(dragState.by + (y - dragState.sy))));
+      updateTouch();
+      paintTouchCfg();
+    }, true);
+
+    const endCfgDrag = (e: PointerEvent) => {
+      if (!dragState || dragState.pid !== e.pointerId) return;
+      e.preventDefault(); e.stopPropagation();
+      dragState = null;
+      save();
+    };
+    el.addEventListener('pointerup', endCfgDrag, true);
+    el.addEventListener('pointercancel', endCfgDrag, true);
+
     if (b.dpad) {
       // Rocker D-pad: sliding thumb between ◀, ▶, and ▼ smoothly switches direction without lifting
       el.addEventListener('pointerdown', (e) => {
+        if (screen === 'touchcfg') return;
         e.preventDefault(); e.stopPropagation(); audio.unlock();
         try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
         dpadPtrs.set(e.pointerId, { id: b.id, el });
         setTouchControl(b.id, true, el);
       });
       el.addEventListener('pointermove', (e) => {
+        if (screen === 'touchcfg') return;
         const cur = dpadPtrs.get(e.pointerId);
         if (!cur) return;
         const hit = document.elementFromPoint(e.clientX, e.clientY)?.closest('button') as HTMLButtonElement | null;
@@ -871,6 +991,7 @@ function buildTouch() {
       el.addEventListener('pointercancel', endDpad);
     } else {
       const on = (v: boolean) => (e: PointerEvent) => {
+        if (screen === 'touchcfg') return;
         e.preventDefault(); e.stopPropagation();
         if (v) audio.unlock();
         setTouchControl(b.id, v, el);
@@ -884,6 +1005,55 @@ function buildTouch() {
     touchEls.push({ def: b, el });
   }
 
+  // Customizer top toolbar buttons
+  $('#cfgmode').addEventListener('click', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    cfgMode = cfgMode === 'swipe' ? 'buttons' : 'swipe';
+    settings.touch = cfgMode;
+    audio.play('menuMove');
+    updateTouch();
+    paintTouchCfg();
+  });
+  const resizeSel = (ds: number) => (e: Event) => {
+    e.preventDefault(); e.stopPropagation();
+    const def = TOUCH_BTNS.find((b) => b.id === cfgSelected);
+    if (!def) return;
+    const c = ensureBtnCustom(def, cfgMode);
+    c.s = Math.max(0.6, Math.min(1.65, Math.round((c.s + ds) * 10) / 10));
+    audio.play('menuMove');
+    updateTouch();
+    paintTouchCfg();
+  };
+  $('#cfgszdn').addEventListener('click', resizeSel(-0.1));
+  $('#cfgszup').addEventListener('click', resizeSel(0.1));
+  $('#cfgtog').addEventListener('click', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    const def = TOUCH_BTNS.find((b) => b.id === cfgSelected);
+    if (!def) return;
+    const c = ensureBtnCustom(def, cfgMode);
+    c.on = !c.on;
+    audio.play('menuMove');
+    updateTouch();
+    paintTouchCfg();
+  });
+  $('#cfgrst').addEventListener('click', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    if (settings.touchLayout) {
+      for (const k of Object.keys(settings.touchLayout)) {
+        if (k.startsWith(cfgMode + ':')) delete settings.touchLayout[k];
+      }
+    }
+    save();
+    audio.play('menuBack');
+    updateTouch();
+    paintTouchCfg();
+    toast(cfgMode.toUpperCase() + ' buttons reset to default');
+  });
+  $('#cfgsave').addEventListener('click', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    closeTouchCustomizer();
+  });
+
   $('#touchmodebtn').addEventListener('click', (e) => {
     e.preventDefault(); e.stopPropagation();
     toggleTouchMode();
@@ -892,14 +1062,10 @@ function buildTouch() {
   // Multi-touch gesture surface across the stage:
   // - Tracks each finger independently so two thumbs never cancel each other.
   // - Tapping the HOLD box or SUPER bar on the HUD triggers Hold / Super directly.
-  // - In SWIPE mode: forgiving drag sideways to move, tap to rotate, flick down to drop, hold down to soft drop, flick up to hold.
+  // - In SWIPE mode: forgiving drag sideways to move, tap to rotate, straight-down flick to drop, hold down to soft drop, flick up to hold.
   const g = $('#gest');
   interface PtrTrack { sx: number; sy: number; lx: number; st: number; moved: number; softing: boolean; }
   const ptrs = new Map<number, PtrTrack>();
-  const pt = (e: PointerEvent): [number, number] => {
-    const r = stage.getBoundingClientRect();
-    return [(e.clientX - r.left) / scale, (e.clientY - r.top) / scale];
-  };
   const syncSoft = () => {
     let anySoft = false;
     for (const p of ptrs.values()) if (p.softing) { anySoft = true; break; }
@@ -907,6 +1073,7 @@ function buildTouch() {
   };
 
   g.addEventListener('pointerdown', (e) => {
+    if (screen === 'touchcfg') return;
     e.preventDefault(); audio.unlock();
     const [x, y] = pt(e);
     // Direct HUD tap zones: P1 HOLD panel (top-left) and P1 SUPER bar (bottom of well)
@@ -952,10 +1119,10 @@ function buildTouch() {
       if (Math.abs(dx) < 22 && Math.abs(dy) < 22 && dt < 360) input.taps.push('cw');
       return;
     }
-    // Forgiving gesture recognition: only trigger vertical flicks when the thumb wasn't sliding horizontally
-    if (tr.moved <= 1 && dy > 62 && dt < 290 && Math.abs(dx) < Math.abs(dy) * 0.85) {
+    // Strict vertical-only flick for hard drop so sliding left/right never accidentally slams a piece
+    if (tr.moved === 0 && dy > 68 && dt < 260 && Math.abs(dx) < Math.abs(dy) * 0.55) {
       input.taps.push('hard');
-    } else if (tr.moved <= 1 && dy < -58 && dt < 300 && Math.abs(dx) < Math.abs(dy) * 0.85) {
+    } else if (tr.moved === 0 && dy < -58 && dt < 300 && Math.abs(dx) < Math.abs(dy) * 0.65) {
       input.taps.push('hold');
     } else if (tr.moved === 0 && Math.abs(dx) < 22 && Math.abs(dy) < 22 && dt < 360) {
       input.taps.push('cw');
@@ -967,23 +1134,29 @@ function buildTouch() {
 
 const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 function updateTouch() {
-  const activeMode = settings.touch === 'off' ? 'off' : settings.touch === 'buttons' ? 'buttons' : (isTouch || settings.touch === 'swipe' ? 'swipe' : 'off');
-  const on = activeMode !== 'off' && screen === 'battle' && mode !== 'versus' && (isTouch || settings.touch === 'buttons');
+  const editing = screen === 'touchcfg';
+  const activeMode: TouchModeKey | 'off' = editing
+    ? cfgMode
+    : settings.touch === 'off' ? 'off' : settings.touch === 'buttons' ? 'buttons' : (isTouch || settings.touch === 'swipe' ? 'swipe' : 'off');
+  const on = editing || (activeMode !== 'off' && screen === 'battle' && mode !== 'versus' && (isTouch || settings.touch === 'buttons'));
   const root = $('#touch');
   root.classList.toggle('on', on);
-  root.classList.toggle('mode-swipe', activeMode === 'swipe');
-  root.classList.toggle('mode-buttons', activeMode === 'buttons');
+  root.classList.toggle('editing', editing);
+  const modeKey: TouchModeKey = activeMode === 'buttons' ? 'buttons' : 'swipe';
   for (const { def, el } of touchEls) {
-    const pos = activeMode === 'buttons' ? def.btnPos : (def.swipePos || def.btnPos);
-    el.style.left = pos[0] + 'px';
-    el.style.top = pos[1] + 'px';
-    el.style.width = pos[2] + 'px';
-    el.style.height = pos[3] + 'px';
+    const st = getBtnState(def, modeKey);
+    el.style.left = st.x + 'px';
+    el.style.top = st.y + 'px';
+    el.style.width = st.w + 'px';
+    el.style.height = st.h + 'px';
+    el.style.setProperty('--bs', String(st.s));
+    el.classList.toggle('btn-hidden', !st.on);
+    el.classList.toggle('cfg-sel', editing && def.id === cfgSelected);
   }
   const mbtn = $('#touchmodebtn');
   if (mbtn) {
-    mbtn.classList.toggle('on', on);
-    mbtn.textContent = activeMode === 'buttons' ? 'BUTTONS' : 'SWIPE';
+    mbtn.classList.toggle('on', !editing && on);
+    mbtn.textContent = modeKey === 'buttons' ? 'BUTTONS' : 'SWIPE';
   }
 }
 
@@ -1005,8 +1178,8 @@ function frame(now: number) {
   }
   menuFx.update(dt);
   // draw
-  ctx.clearRect(0, 0, W, H);
-  if (battle && (screen === 'battle' || screen === 'pause' || screen === 'results' || (screen === 'settings' && setFrom === 'pause'))) {
+  ctx.clearRect(-extraX, 0, W + extraX * 2, H);
+  if (battle && (screen === 'battle' || screen === 'pause' || screen === 'results' || screen === 'touchcfg' || (screen === 'settings' && setFrom === 'pause'))) {
     battle.update(dt);
     onlineTick(dt);
     battle.draw(ctx, drawBg);
@@ -1019,14 +1192,14 @@ function frame(now: number) {
       const lb = sb.querySelector('.lb');
       if (lb) lb.textContent = supReady ? 'READY!' : 'SUPER';
     }
-    if ($('#touch').classList.contains('on') && battle.round === 1 && (battle.phase === 'intro' || battle.phase === 'fight')) {
+    if (screen === 'battle' && $('#touch').classList.contains('on') && battle.round === 1 && (battle.phase === 'intro' || battle.phase === 'fight')) {
       ctx.save(); ctx.textAlign = 'center'; ctx.font = `600 16px 'Chakra Petch', sans-serif`;
       ctx.fillStyle = 'rgba(5,5,20,0.84)'; ctx.fillRect(112, 534, 278, 98);
       ctx.strokeStyle = 'rgba(255,207,74,0.45)'; ctx.lineWidth = 1.5; ctx.strokeRect(112, 534, 278, 98);
       ctx.fillStyle = '#fff';
       const lines = settings.touch === 'buttons'
-        ? ['Use ◀ ▶ on left to move', 'Tap ⟳ ROTATE or board to turn', 'Tap SWIPE at top to use gestures']
-        : ['Slide left / right to move', 'Tap to rotate · flick down to drop', 'Want buttons? Tap SWIPE at top'];
+        ? ['Use ◀ ▶ on left to move', 'Tap ⟳ ROTATE or board to turn', 'Pause (II) → Customize Buttons']
+        : ['Slide left / right to move', 'Tap to rotate · flick down to drop', 'Pause (II) → Customize Buttons'];
       lines.forEach((t, i) => {
         ctx.fillStyle = i === 2 ? '#ffcf4a' : '#fff';
         ctx.fillText(t, 251, 560 + i * 26);
@@ -1037,7 +1210,27 @@ function frame(now: number) {
     const [sx, sy] = menuFx.shakeOffset(now);
     ctx.save(); ctx.translate(sx, sy);
     drawBg(ctx, time, bgMode === 'select' ? 0.55 : bgMode === 'menu' ? 0.25 : 0.35);
-    if (bgMode === 'title' || bgMode === 'menu') {
+    if (screen === 'touchcfg') {
+      // Draw board reference outlines when customizing buttons from the main Settings menu
+      ctx.save();
+      ctx.fillStyle = 'rgba(6,5,22,0.8)';
+      ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+      ctx.lineWidth = 2;
+      for (const [bx, lbl] of [[116, 'YOUR WELL (P1)'], [1280 - 116 - 270, 'RIVAL WELL (P2)']] as const) {
+        ctx.fillRect(bx, 128, 270, 540);
+        ctx.strokeRect(bx, 128, 270, 540);
+        ctx.fillStyle = 'rgba(255,255,255,0.35)';
+        ctx.font = `22px ${FONT_D}`;
+        ctx.textAlign = 'center';
+        ctx.fillText(lbl, bx + 135, 400);
+        ctx.fillStyle = 'rgba(6,5,22,0.8)';
+      }
+      ctx.strokeRect(14, 128, 90, 86);
+      ctx.fillStyle = 'rgba(255,255,255,0.45)';
+      ctx.font = `14px ${FONT_D}`;
+      ctx.fillText('HOLD BOX', 59, 176);
+      ctx.restore();
+    } else if (bgMode === 'title' || bgMode === 'menu') {
       drawDeco(ctx, dt / 1000);
       sparT -= dt / 1000;
       if (sparT <= 0 && attract.length) {
@@ -1056,6 +1249,7 @@ function frame(now: number) {
 }
 
 // ---------------------------------------------------------------- boot
+fit();
 input.onAnyInput = () => { audio.unlock(); if (screen === 'title') { /* handled by nav */ } };
 window.addEventListener('pointerdown', () => audio.unlock());
 async function boot() {
@@ -1069,6 +1263,7 @@ async function boot() {
   audio.setVolumes(settings.music, settings.sfx);
   buildMainMenu();
   buildTouch();
+  updateTouch();
   if (STANDALONE) {
     const h = location.hash.replace('#', '').toUpperCase();
     if (/^[A-Z0-9]{4}$/.test(h)) { pendingJoin = h; history.replaceState(null, '', location.pathname + location.search); }
@@ -1076,7 +1271,7 @@ async function boot() {
   }
   goTitle();
   // hidden test hooks for automated play-testing and secret character unlocking
-  (window as any).__bc = { get battle() { return battle; }, get screen() { return screen; }, unlockSecretChar, autoPlay: (d: Difficulty = 'normal') => { const s = battle && battle.sides[0]; if (s) { s.cfg.kind = 'cpu'; s.cpu = new CpuController(d); (battle as any).autoDiff = d; } }, startCpuDemo: (d: Difficulty = 'hard', d2: Difficulty = d) => { mode = 'cpu'; const a: SideCfg = { kind: 'cpu', diff: d2, char: 'nong', alt: false, label: 'CPU A' }; const b: SideCfg = { kind: 'cpu', diff: d, char: 'nang', alt: false, label: 'CPU B' }; startBattle(a, b); }, net };
+  (window as any).__bc = { get battle() { return battle; }, get screen() { return screen; }, unlockSecretChar, openTouchCustomizer, autoPlay: (d: Difficulty = 'normal') => { const s = battle && battle.sides[0]; if (s) { s.cfg.kind = 'cpu'; s.cpu = new CpuController(d); (battle as any).autoDiff = d; } }, startCpuDemo: (d: Difficulty = 'hard', d2: Difficulty = d) => { mode = 'cpu'; const a: SideCfg = { kind: 'cpu', diff: d2, char: 'nong', alt: false, label: 'CPU A' }; const b: SideCfg = { kind: 'cpu', diff: d, char: 'nang', alt: false, label: 'CPU B' }; startBattle(a, b); }, net };
 }
 requestAnimationFrame(frame);
 boot();

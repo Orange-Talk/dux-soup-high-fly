@@ -246,8 +246,35 @@ export function drawBoard(ctx: CanvasRenderingContext2D, v: BoardView, fx: Board
     const p = v.cur;
     const id = ({ I: 1, O: 2, T: 3, S: 4, Z: 5, J: 6, L: 7 } as any)[p.t];
     if (o.ghost && v.ghostY !== null && v.ghostY !== p.y) {
+      const cells = SHAPES[p.t][p.r];
+      let minCx = 99, maxCx = -99, minCy = 99, maxGy = -99;
+      for (const [cx, cy] of cells) {
+        if (p.x + cx < minCx) minCx = p.x + cx;
+        if (p.x + cx > maxCx) maxCx = p.x + cx;
+        if (p.y + cy < minCy) minCy = p.y + cy;
+        if (v.ghostY + cy > maxGy) maxGy = v.ghostY + cy;
+      }
+      const beamTop = by + Math.max(0, minCy - HIDDEN) * CELL;
+      const beamBot = by + (maxGy - HIDDEN + 1) * CELL;
+      const beamX = bx + minCx * CELL;
+      const beamW = (maxCx - minCx + 1) * CELL;
+      if (beamBot > beamTop) {
+        ctx.save();
+        const bg = ctx.createLinearGradient(0, beamTop, 0, beamBot);
+        bg.addColorStop(0, 'rgba(255,255,255,0.02)');
+        bg.addColorStop(1, 'rgba(255,255,255,0.075)');
+        ctx.fillStyle = bg;
+        ctx.fillRect(beamX, beamTop, beamW, beamBot - beamTop);
+        ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(beamX + 0.5, beamTop); ctx.lineTo(beamX + 0.5, beamBot);
+        ctx.moveTo(beamX + beamW - 0.5, beamTop); ctx.lineTo(beamX + beamW - 0.5, beamBot);
+        ctx.stroke();
+        ctx.restore();
+      }
       const gi = block(id, CELL, 9);
-      for (const [cx, cy] of SHAPES[p.t][p.r]) {
+      for (const [cx, cy] of cells) {
         const yy = v.ghostY + cy;
         if (yy < HIDDEN) continue;
         ctx.drawImage(gi, bx + (p.x + cx) * CELL, by + (yy - HIDDEN) * CELL, CELL, CELL);

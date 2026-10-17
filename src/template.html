@@ -11,8 +11,8 @@
 }
 html, body { height: 100%; overscroll-behavior: none; touch-action: none; -webkit-touch-callout: none; }
 body { margin: 0; background: #05040f; color: var(--text); font-family: var(--fb); overflow: hidden; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; touch-action: none; -webkit-touch-callout: none; }
-#root { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: radial-gradient(ellipse at center, #120f30 0%, #05040f 70%); padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); touch-action: none; }
-#stage { position: absolute; left: 50%; top: 50%; width: 1280px; height: 720px; transform-origin: 0 0; overflow: hidden; background: var(--ink); box-shadow: 0 0 80px rgba(0,0,0,0.8); touch-action: none; }
+#root { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: #05040f; touch-action: none; }
+#stage { --extra-x: 0px; position: absolute; left: 50%; top: 50%; width: 1280px; height: 720px; transform-origin: 0 0; overflow: visible; clip-path: inset(0 calc(-1 * var(--extra-x, 0px))); background: var(--ink); box-shadow: 0 0 80px rgba(0,0,0,0.8); touch-action: none; }
 #cv { position: absolute; left: 0; top: 0; width: 1280px; height: 720px; display: block; touch-action: none; }
 #ui { position: absolute; inset: 0; pointer-events: none; }
 .screen { position: absolute; inset: 0; opacity: 0; visibility: hidden; transition: opacity .28s ease, visibility 0s linear .28s; pointer-events: none; }
@@ -28,7 +28,7 @@ button:focus-visible { outline: 3px solid var(--gold); outline-offset: 4px; }
 .logo .pcs { position: absolute; top: -34px; left: -50px; width: 72px; height: 72px; }
 
 /* ---------- loading / title */
-#s-loading { display: grid; place-items: center; background: var(--ink); }
+#s-loading { display: grid; place-items: center; background: var(--ink); left: calc(-1 * var(--extra-x, 0px)); right: calc(-1 * var(--extra-x, 0px)); }
 #s-loading .bar { width: 360px; height: 8px; border-radius: 4px; background: rgba(255,255,255,.08); overflow: hidden; margin-top: 44px; }
 #s-loading .bar i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--gold), var(--ember)); transition: width .2s; }
 #s-loading .lbl { margin-top: 14px; font: 600 14px var(--fb); letter-spacing: 3px; color: var(--muted); text-align: center; }
@@ -66,7 +66,8 @@ button:focus-visible { outline: 3px solid var(--gold); outline-offset: 4px; }
 .rival .lead { margin-top: 6px; font: 600 13px var(--fb); color: var(--gold); text-align: center; }
 
 /* ---------- generic page */
-.page { position: absolute; inset: 0; background: linear-gradient(180deg, rgba(7,6,26,.55), rgba(7,6,26,.9)); }
+.page { position: absolute; inset: 0; }
+.page::before { content: ""; position: absolute; top: 0; bottom: 0; left: calc(-1 * var(--extra-x, 0px)); right: calc(-1 * var(--extra-x, 0px)); background: linear-gradient(180deg, rgba(7,6,26,.55), rgba(7,6,26,.9)); z-index: -1; }
 .page h2 { position: absolute; left: 70px; top: 44px; margin: 0; font: 46px var(--fd); color: #fff; text-shadow: 0 4px 0 rgba(0,0,0,.5); }
 .page h2 small { display: block; font: 600 14px var(--fb); color: var(--muted); letter-spacing: 3px; margin-top: 6px; text-shadow: none; }
 
@@ -163,7 +164,7 @@ button:focus-visible { outline: 3px solid var(--gold); outline-offset: 4px; }
 @keyframes vsSlam { from { transform: translate(-50%, -50%) scale(4); opacity: 0; } to { transform: translate(-50%, -50%) scale(1); opacity: 1; } }
 
 /* ---------- overlays */
-.ov { position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; background: rgba(4,3,16,.66); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
+.ov { position: absolute; top: 0; bottom: 0; left: calc(-1 * var(--extra-x, 0px)); right: calc(-1 * var(--extra-x, 0px)); display: flex; align-items: center; justify-content: center; background: rgba(4,3,16,.66); backdrop-filter: blur(3px); -webkit-backdrop-filter: blur(3px); }
 .box { min-width: 440px; padding: 30px 34px 26px; border-radius: 18px; background: linear-gradient(170deg, rgba(26,24,70,.97), rgba(9,8,28,.97)); border: 1px solid var(--line); box-shadow: 0 30px 80px rgba(0,0,0,.6); }
 .box h3 { margin: 0 0 18px; font: 40px var(--fd); text-align: center; }
 .box .menu { margin-top: 0; }
@@ -233,25 +234,26 @@ kbd { display: inline-block; min-width: 18px; text-align: center; padding: 1px 6
 #toast.on { transform: translate(-50%, 0); visibility: visible; }
 
 /* touch */
-#touch { position: absolute; inset: 0; pointer-events: none; display: none; }
+#touch { position: absolute; inset: 0; pointer-events: none; display: none; z-index: 4; }
 #touch.on { display: block; }
 #touch button {
+  --bs: 1;
   position: absolute; pointer-events: auto;
   display: flex; flex-direction: column; align-items: center; justify-content: center;
-  border-radius: 22px; background: rgba(14,13,38,.62); border: 2px solid rgba(255,255,255,.24);
-  font: 15px var(--fd); color: rgba(255,255,255,.92); letter-spacing: .5px; line-height: 1.05;
+  border-radius: calc(22px * var(--bs)); background: rgba(14,13,38,.66); border: 2px solid rgba(255,255,255,.26);
+  font: 15px var(--fd); color: rgba(255,255,255,.94); letter-spacing: .5px; line-height: 1.05;
   touch-action: none; -webkit-touch-callout: none;
   box-shadow: 0 6px 18px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.16);
   transition: transform .06s ease, background .1s ease, border-color .15s ease;
 }
-#touch button .ic { font-size: 24px; line-height: 1; margin-bottom: 2px; font-family: var(--fb); font-weight: 700; }
-#touch button .lb { font-size: 11px; font-family: var(--fb); font-weight: 700; letter-spacing: 1.5px; color: rgba(255,255,255,.72); }
+#touch button .ic { font-size: calc(24px * var(--bs)); line-height: 1; margin-bottom: 2px; font-family: var(--fb); font-weight: 700; pointer-events: none; }
+#touch button .lb { font-size: calc(11px * var(--bs)); font-family: var(--fb); font-weight: 700; letter-spacing: 1.5px; color: rgba(255,255,255,.76); pointer-events: none; }
 #touch button.on { background: rgba(255,207,74,.45); border-color: var(--gold); transform: scale(.95); color: #fff; }
-#touch button.pri { background: rgba(79,210,255,.2); border-color: rgba(79,210,255,.55); border-radius: 50%; }
+#touch button.pri { background: rgba(79,210,255,.22); border-color: rgba(79,210,255,.58); border-radius: 50%; }
 #touch button.pri.on { background: rgba(79,210,255,.55); border-color: #fff; }
-#touch button.drp { background: rgba(255,106,61,.2); border-color: rgba(255,106,61,.5); }
+#touch button.drp { background: rgba(255,106,61,.22); border-color: rgba(255,106,61,.55); }
 #touch button.drp.on { background: rgba(255,106,61,.55); border-color: #fff; }
-#touch button.sup { opacity: .55; border-style: dashed; }
+#touch button.sup { opacity: .58; border-style: dashed; }
 #touch button.sup.super-ready {
   opacity: 1; border-style: solid; border-color: var(--gold);
   background: linear-gradient(160deg, rgba(255,207,74,.42), rgba(255,106,61,.42));
@@ -259,8 +261,44 @@ kbd { display: inline-block; min-width: 18px; text-align: center; padding: 1px 6
   animation: supPulse 1s ease-in-out infinite;
 }
 @keyframes supPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.06); } }
-#touch.mode-swipe .only-buttons { display: none !important; }
-#touch.mode-buttons .only-swipe { display: none !important; }
+#touch button.btn-hidden { display: none !important; }
+#touch.editing { display: block; z-index: 12; }
+#touch.editing #gest { pointer-events: none !important; }
+#touch.editing button { transition: none; cursor: grab; opacity: .94; }
+#touch.editing button.btn-hidden { display: flex !important; opacity: .32; border-style: dashed; filter: grayscale(.6); }
+#touch.editing button.cfg-sel { border-color: var(--gold) !important; box-shadow: 0 0 0 3px var(--gold), 0 0 26px rgba(255,207,74,.75) !important; opacity: 1 !important; z-index: 2; }
+
+/* touch HUD layout customizer */
+#s-touchcfg { z-index: 10; }
+#s-touchcfg .cfg-bg {
+  position: absolute; top: 0; bottom: 0;
+  left: calc(-1 * var(--extra-x, 0px)); right: calc(-1 * var(--extra-x, 0px));
+  background:
+    linear-gradient(90deg, rgba(255,255,255,.04) 1px, transparent 1px) 0 0 / 32px 32px,
+    linear-gradient(0deg, rgba(255,255,255,.04) 1px, transparent 1px) 0 0 / 32px 32px,
+    rgba(6, 5, 22, 0.55);
+  pointer-events: none;
+}
+#cfgbar {
+  position: absolute; top: 18px; left: 50%; transform: translateX(-50%);
+  display: flex; align-items: center; gap: 8px; padding: 10px 16px;
+  border-radius: 14px; background: rgba(12, 11, 38, 0.94); border: 1.5px solid rgba(255,207,74,.55);
+  box-shadow: 0 12px 36px rgba(0,0,0,.65); z-index: 15; white-space: nowrap;
+}
+#cfgbar .c-lbl { font: 700 13px var(--fb); color: var(--gold); letter-spacing: 1.5px; margin-right: 4px; min-width: 148px; }
+#cfgbar button {
+  padding: 7px 12px; border-radius: 8px; background: rgba(255,255,255,.1); border: 1px solid rgba(255,255,255,.22);
+  font: 14px var(--fd); color: #fff; letter-spacing: .8px;
+}
+#cfgbar button:active { transform: scale(.95); }
+#cfgbar button.gold { background: linear-gradient(180deg, #ffcf4a, #ff9a2e); color: #1a0b16; border-color: #fff; }
+#cfgbar button.mode { border-color: var(--p1); color: var(--p1); }
+#cfghint {
+  position: absolute; top: 76px; left: 50%; transform: translateX(-50%);
+  padding: 5px 14px; border-radius: 20px; background: rgba(6,5,22,.82);
+  font: 600 13px var(--fb); color: var(--muted); letter-spacing: 1px; pointer-events: none; white-space: nowrap;
+}
+
 #pausebtn { position: absolute; top: 96px; left: 50%; transform: translateX(-50%); width: 48px; height: 32px; border-radius: 8px; background: rgba(14,13,38,.72); border: 1px solid var(--line); font: 14px var(--fd); pointer-events: auto; display: none; z-index: 6; }
 #pausebtn.on { display: block; }
 #touchmodebtn { position: absolute; top: 96px; left: calc(50% + 34px); height: 32px; padding: 0 12px; border-radius: 8px; background: rgba(14,13,38,.72); border: 1px solid rgba(255,207,74,.4); font: 700 11px var(--fb); letter-spacing: 1.5px; color: var(--gold); pointer-events: auto; display: none; z-index: 6; }
@@ -268,7 +306,7 @@ kbd { display: inline-block; min-width: 18px; text-align: center; padding: 1px 6
 #backbtn { position: absolute; right: 40px; top: 44px; padding: 10px 18px 8px; border-radius: 10px; background: rgba(255,255,255,.08); border: 1px solid var(--line); font: 16px var(--fd); color: #fff; display: none; z-index: 5; }
 #backbtn.on { display: block; }
 #backbtn:hover { background: rgba(255,207,74,.18); border-color: var(--gold); }
-#gest { position: absolute; left: 0; top: 0; width: 1280px; height: 720px; pointer-events: auto; touch-action: none; -webkit-touch-callout: none; }
+#gest { position: absolute; top: 0; bottom: 0; left: calc(-1 * var(--extra-x, 0px)); right: calc(-1 * var(--extra-x, 0px)); pointer-events: auto; touch-action: none; -webkit-touch-callout: none; }
 #rotate { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 14px; background: #07061a; color: #fff; font: 22px var(--fd); text-align: center; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); z-index: 100; }
 #rotate small { font: 600 15px var(--fb); color: var(--muted); }
 @media (orientation: portrait) and (pointer: coarse) { #rotate { display: flex; } }
@@ -322,6 +360,19 @@ kbd { display: inline-block; min-width: 18px; text-align: center; padding: 1px 6
       <div class="screen" id="s-settings"><div class="page"><h2>SETTINGS<small>SAVED ON THIS DEVICE</small></h2><div class="rows" id="setrows"></div><div class="hint"><b>↑</b><b>↓</b> choose &nbsp;·&nbsp; <b>←</b><b>→</b> change &nbsp;·&nbsp; <b>Esc</b> back</div></div></div>
       <div class="screen" id="s-howto"><div class="page"><h2>HOW TO PLAY</h2><div class="tabs" id="howtabs"></div><div class="body" id="howbody"></div><div class="hint"><b>←</b><b>→</b> switch page &nbsp;·&nbsp; <b>Esc</b> back</div></div></div>
       <div class="screen" id="s-online"><div class="page"><h2>ONLINE<small>PLAY ON TWO DEVICES</small></h2><div class="center" id="onl"></div></div></div>
+      <div class="screen" id="s-touchcfg">
+        <div class="cfg-bg"></div>
+        <div id="cfgbar">
+          <span class="c-lbl" id="cfglbl">DROP · 100%</span>
+          <button id="cfgmode" class="mode">MODE: SWIPE</button>
+          <button id="cfgszdn" aria-label="Smaller">SIZE −</button>
+          <button id="cfgszup" aria-label="Larger">SIZE +</button>
+          <button id="cfgtog">HIDE</button>
+          <button id="cfgrst">RESET</button>
+          <button id="cfgsave" class="gold">SAVE</button>
+        </div>
+        <div id="cfghint">Drag any button to move it (including into the side margins) · Tap a button to resize or show/hide</div>
+      </div>
     </div>
     <div id="touch"><div id="gest"></div></div>
     <button id="backbtn" aria-label="Back">◀ BACK</button>

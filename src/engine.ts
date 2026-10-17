@@ -504,9 +504,11 @@ export class Board {
   }
 
   /** fixed step update */
+  private spawnDropGuard = 0;
   update(dt: number, c: Controls) {
     if (!this.alive || this.frozen) { this.prev = { ...c }; return; }
     this.stats.time += dt;
+    if (this.spawnDropGuard > 0) this.spawnDropGuard = Math.max(0, this.spawnDropGuard - dt);
     for (const inc of this.incoming) inc.age += dt;
     const pressed = (k: keyof Controls) => c[k] && !this.prev[k];
 
@@ -535,13 +537,13 @@ export class Board {
     if (!this.cur) { this.prev = { ...c }; return; }
 
     if (pressed('super')) this.fireSuper();
-    if (pressed('hold')) this.doHold();
+    if (pressed('hold')) { this.spawnDropGuard = 0; this.doHold(); }
     if (!this.cur) { this.prev = { ...c }; return; }
-    if (pressed('cw')) this.tryRotate(1);
-    if (pressed('ccw')) this.tryRotate(-1);
+    if (pressed('cw')) { this.spawnDropGuard = 0; this.tryRotate(1); }
+    if (pressed('ccw')) { this.spawnDropGuard = 0; this.tryRotate(-1); }
 
     // horizontal
-    if (dir && newDir) { if (this.tryMove(dir, 0)) this.emit({ k: 'move' }); }
+    if (dir && newDir) { this.spawnDropGuard = 0; if (this.tryMove(dir, 0)) this.emit({ k: 'move' }); }
     else if (dir && this.dasT >= this.handling.das) {
       if (this.handling.arr <= 0) { let m = false; while (this.tryMove(dir, 0)) m = true; if (m) this.emit({ k: 'move' }); }
       else {
@@ -550,7 +552,7 @@ export class Board {
       }
     }
 
-    if (pressed('hard')) { this.hardDrop(); this.afterLockCheck(c); return; }
+    if (pressed('hard') && this.spawnDropGuard <= 0) { this.hardDrop(); this.afterLockCheck(c); return; }
 
     // gravity
     const g = this.gravityMs;
@@ -569,7 +571,7 @@ export class Board {
     this.onGround = grounded;
     if (grounded) {
       this.lockT += dt;
-      if (this.lockT >= this.rules.lockDelay) this.lock(0);
+      if (this.lockT >= this.rules.lockDelay) { this.spawnDropGuard = 175; this.lock(0); }
     }
     this.prev = { ...c };
   }
