@@ -20,7 +20,7 @@ tpl = tpl.replace('/*__FONTS__*/', faces);
 const [a, b] = tpl.split('/*__BUNDLE__*/');
 const out = standalone ? (peerHost ? 'dist/standalone-test.html' : 'dist/standalone/index.html') : 'dist/index.html';
 let html = a + js + b;
-if (standalone) html = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="theme-color" content="#07061a"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="mobile-web-app-capable" content="yes"></head><body>' + html + '</body></html>';
+if (standalone) html = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><meta name="theme-color" content="#07061a"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="mobile-web-app-capable" content="yes"></head><body>' + html + '</body></html>';
 fs.mkdirSync(out.replace(/\/[^/]+$/, ''), { recursive: true });
 fs.writeFileSync(out, html);
 console.log('built', out, (fs.statSync(out).size / 1024 / 1024).toFixed(2), 'MB');

@@ -9,15 +9,15 @@
   --fb: 'Chakra Petch', 'Trebuchet MS', 'Segoe UI', sans-serif;
   color-scheme: dark;
 }
-html, body { height: 100%; }
-body { margin: 0; background: #05040f; color: var(--text); font-family: var(--fb); overflow: hidden; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; touch-action: manipulation; }
-#root { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: radial-gradient(ellipse at center, #120f30 0%, #05040f 70%); padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); }
-#stage { position: absolute; left: 50%; top: 50%; width: 1280px; height: 720px; transform-origin: 0 0; overflow: hidden; background: var(--ink); box-shadow: 0 0 80px rgba(0,0,0,0.8); }
-#cv { position: absolute; left: 0; top: 0; width: 1280px; height: 720px; display: block; }
+html, body { height: 100%; overscroll-behavior: none; touch-action: none; -webkit-touch-callout: none; }
+body { margin: 0; background: #05040f; color: var(--text); font-family: var(--fb); overflow: hidden; -webkit-user-select: none; user-select: none; -webkit-tap-highlight-color: transparent; touch-action: none; -webkit-touch-callout: none; }
+#root { position: fixed; inset: 0; display: flex; align-items: center; justify-content: center; background: radial-gradient(ellipse at center, #120f30 0%, #05040f 70%); padding-left: env(safe-area-inset-left, 0px); padding-right: env(safe-area-inset-right, 0px); touch-action: none; }
+#stage { position: absolute; left: 50%; top: 50%; width: 1280px; height: 720px; transform-origin: 0 0; overflow: hidden; background: var(--ink); box-shadow: 0 0 80px rgba(0,0,0,0.8); touch-action: none; }
+#cv { position: absolute; left: 0; top: 0; width: 1280px; height: 720px; display: block; touch-action: none; }
 #ui { position: absolute; inset: 0; pointer-events: none; }
 .screen { position: absolute; inset: 0; opacity: 0; visibility: hidden; transition: opacity .28s ease, visibility 0s linear .28s; pointer-events: none; }
 .screen.on { opacity: 1; visibility: visible; transition: opacity .28s ease; pointer-events: auto; }
-button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; }
+button { font: inherit; color: inherit; background: none; border: 0; padding: 0; cursor: pointer; touch-action: none; -webkit-touch-callout: none; }
 button:focus-visible { outline: 3px solid var(--gold); outline-offset: 4px; }
 
 /* ---------- logo */
@@ -235,15 +235,40 @@ kbd { display: inline-block; min-width: 18px; text-align: center; padding: 1px 6
 /* touch */
 #touch { position: absolute; inset: 0; pointer-events: none; display: none; }
 #touch.on { display: block; }
-#touch button { position: absolute; pointer-events: auto; width: 104px; height: 104px; border-radius: 50%; background: rgba(255,255,255,.13); border: 2px solid rgba(255,255,255,.28); font: 20px var(--fd); color: #fff; touch-action: none; backdrop-filter: blur(2px); -webkit-backdrop-filter: blur(2px); }
-#touch button.on { background: rgba(255,207,74,.45); }
-#touch .sm { width: 84px; height: 84px; font-size: 14px; }
-#pausebtn { position: absolute; top: 14px; left: 50%; transform: translateX(-50%); width: 46px; height: 30px; margin-top: 82px; border-radius: 8px; background: rgba(255,255,255,.08); font: 14px var(--fd); pointer-events: auto; display: none; }
+#touch button {
+  position: absolute; pointer-events: auto;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  border-radius: 22px; background: rgba(14,13,38,.62); border: 2px solid rgba(255,255,255,.24);
+  font: 15px var(--fd); color: rgba(255,255,255,.92); letter-spacing: .5px; line-height: 1.05;
+  touch-action: none; -webkit-touch-callout: none;
+  box-shadow: 0 6px 18px rgba(0,0,0,.45), inset 0 1px 0 rgba(255,255,255,.16);
+  transition: transform .06s ease, background .1s ease, border-color .15s ease;
+}
+#touch button .ic { font-size: 24px; line-height: 1; margin-bottom: 2px; font-family: var(--fb); font-weight: 700; }
+#touch button .lb { font-size: 11px; font-family: var(--fb); font-weight: 700; letter-spacing: 1.5px; color: rgba(255,255,255,.72); }
+#touch button.on { background: rgba(255,207,74,.45); border-color: var(--gold); transform: scale(.95); color: #fff; }
+#touch button.pri { background: rgba(79,210,255,.2); border-color: rgba(79,210,255,.55); border-radius: 50%; }
+#touch button.pri.on { background: rgba(79,210,255,.55); border-color: #fff; }
+#touch button.drp { background: rgba(255,106,61,.2); border-color: rgba(255,106,61,.5); }
+#touch button.drp.on { background: rgba(255,106,61,.55); border-color: #fff; }
+#touch button.sup { opacity: .55; border-style: dashed; }
+#touch button.sup.super-ready {
+  opacity: 1; border-style: solid; border-color: var(--gold);
+  background: linear-gradient(160deg, rgba(255,207,74,.42), rgba(255,106,61,.42));
+  box-shadow: 0 0 24px rgba(255,207,74,.65), inset 0 1px 0 rgba(255,255,255,.4);
+  animation: supPulse 1s ease-in-out infinite;
+}
+@keyframes supPulse { 0%,100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+#touch.mode-swipe .only-buttons { display: none !important; }
+#touch.mode-buttons .only-swipe { display: none !important; }
+#pausebtn { position: absolute; top: 96px; left: 50%; transform: translateX(-50%); width: 48px; height: 32px; border-radius: 8px; background: rgba(14,13,38,.72); border: 1px solid var(--line); font: 14px var(--fd); pointer-events: auto; display: none; z-index: 6; }
 #pausebtn.on { display: block; }
+#touchmodebtn { position: absolute; top: 96px; left: calc(50% + 34px); height: 32px; padding: 0 12px; border-radius: 8px; background: rgba(14,13,38,.72); border: 1px solid rgba(255,207,74,.4); font: 700 11px var(--fb); letter-spacing: 1.5px; color: var(--gold); pointer-events: auto; display: none; z-index: 6; }
+#touchmodebtn.on { display: block; }
 #backbtn { position: absolute; right: 40px; top: 44px; padding: 10px 18px 8px; border-radius: 10px; background: rgba(255,255,255,.08); border: 1px solid var(--line); font: 16px var(--fd); color: #fff; display: none; z-index: 5; }
 #backbtn.on { display: block; }
 #backbtn:hover { background: rgba(255,207,74,.18); border-color: var(--gold); }
-#gest { position: absolute; left: 0; top: 0; width: 880px; height: 720px; pointer-events: auto; touch-action: none; }
+#gest { position: absolute; left: 0; top: 0; width: 1280px; height: 720px; pointer-events: auto; touch-action: none; -webkit-touch-callout: none; }
 #rotate { position: fixed; inset: 0; display: none; align-items: center; justify-content: center; flex-direction: column; gap: 14px; background: #07061a; color: #fff; font: 22px var(--fd); text-align: center; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); z-index: 100; }
 #rotate small { font: 600 15px var(--fb); color: var(--muted); }
 @media (orientation: portrait) and (pointer: coarse) { #rotate { display: flex; } }
@@ -301,6 +326,7 @@ kbd { display: inline-block; min-width: 18px; text-align: center; padding: 1px 6
     <div id="touch"><div id="gest"></div></div>
     <button id="backbtn" aria-label="Back">◀ BACK</button>
     <button id="pausebtn" aria-label="Pause">II</button>
+    <button id="touchmodebtn" aria-label="Switch Touch Mode">SWIPE</button>
     <div id="toast"></div>
   </div>
 </div>

@@ -1,10 +1,10 @@
-import { loadAll, art, CharId, URLS } from './assets';
+import { loadAll, art, CharId, URLS, portraitUrl } from './assets';
 import { audio } from './audio';
 import { input, NavEvent, SourceId } from './input';
 import { Battle, SideCfg } from './battle';
 import { Fighter } from './fighter';
 import { FX } from './fx';
-import { CHARS, charColor } from './chars';
+import { CHARS, charColor, getUnlockedChars, unlockSecretChar } from './chars';
 import { settings, record, save } from './settings';
 import { W, H, setDpr, FONT_D, block, PCOL } from './render';
 import { net as roomNet, DuelPresence } from './net';
@@ -22,10 +22,12 @@ const cv = $<HTMLCanvasElement>('#cv');
 const ctx = cv.getContext('2d')!;
 const stage = $('#stage');
 
-// ---------------------------------------------------------------- scaling
+// ---------------------------------------------------------------- scaling & mobile browser lockdown
 let scale = 1;
 function fit() {
-  const vw = window.innerWidth, vh = window.innerHeight;
+  const vv = window.visualViewport;
+  const vw = vv ? vv.width : window.innerWidth;
+  const vh = vv ? vv.height : window.innerHeight;
   scale = Math.min(vw / W, vh / H);
   stage.style.transform = `translate(-50%,-50%) scale(${scale})`;
   stage.style.transformOrigin = '50% 50%';
@@ -37,6 +39,18 @@ function fit() {
 }
 stage.style.left = '50%'; stage.style.top = '50%';
 window.addEventListener('resize', fit);
+window.visualViewport?.addEventListener('resize', fit);
+// Prevent iOS Safari double-tap zoom, pinch-zoom, rubber-band scroll, and long-press callouts
+for (const ev of ['gesturestart', 'gesturechange', 'gestureend', 'dblclick', 'contextmenu']) {
+  window.addEventListener(ev, (e) => {
+    if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
+    e.preventDefault();
+  }, { passive: false });
+}
+document.addEventListener('touchmove', (e) => {
+  if ((e.target as HTMLElement)?.tagName === 'INPUT') return;
+  e.preventDefault();
+}, { passive: false });
 fit();
 
 // ---------------------------------------------------------------- screens
@@ -220,7 +234,10 @@ handlers.cpu = (e) => {
 
 // ---------------------------------------------------------------- character select
 interface Slot { src: SourceId | 'solo' | null; cur: number; locked: boolean; char: CharId; }
-const TILE_CHARS: (CharId | 'random')[] = ['nong', 'random', 'nang'];
+function getSelectTiles(): (CharId | 'random')[] {
+  const unlocked = getUnlockedChars();
+  return [unlocked[0] || 'nong', 'random', ...unlocked.slice(1)];
+}
 let slots: [Slot, Slot] = [{ src: null, cur: 0, locked: false, char: 'nong' }, { src: null, cur: 2, locked: false, char: 'nang' }];
 let selectDone = false;
 let onlineOppChar: CharId | null = null;
@@ -239,15 +256,17 @@ function panelHtml(i: 0 | 1) {
 function goSelect() {
   selectDone = false;
   bgMode = 'select';
-  slots = [{ src: null, cur: 0, locked: false, char: 'nong' }, { src: null, cur: 2, locked: false, char: 'nang' }];
+  const tileChars = getSelectTiles();
+  const p2Idx = Math.max(0, tileChars.indexOf('nang'));
+  slots = [{ src: null, cur: 0, locked: false, char: 'nong' }, { src: null, cur: p2Idx, locked: false, char: 'nang' }];
   if (mode !== 'versus') slots[0].src = 'solo';
   $('#pan1').innerHTML = panelHtml(0);
   $('#pan2').innerHTML = panelHtml(1);
   const tiles = $('#tiles');
   const tileHtml = (c: CharId | 'random') => c === 'random'
     ? `<button class="tile rnd" data-c="random"><span class="tn">RANDOM</span><span class="cur c1">P1</span><span class="cur c2">P2</span></button>`
-    : `<button class="tile" data-c="${c}"><img src="${c === 'nong' ? URLS.nongPortrait : URLS.nangPortrait}" alt=""><div><div class="tn" style="color:${CHARS[c].color}">${CHARS[c].name}</div><div class="ts">${CHARS[c].title.toUpperCase()}</div></div><span class="cur c1">P1</span><span class="cur c2">${mode === 'cpu' ? 'CPU' : 'P2'}</span></button>`;
-  tiles.innerHTML = TILE_CHARS.map(tileHtml).join('');
+    : `<button class="tile" data-c="${c}"><img src="${portraitUrl(c)}" alt=""><div><div class="tn" style="color:${CHARS[c].color}">${CHARS[c].name}</div><div class="ts">${CHARS[c].title.toUpperCase()}</div></div><span class="cur c1">P1</span><span class="cur c2">${mode === 'cpu' ? 'CPU' : 'P2'}</span></button>`;
+  tiles.innerHTML = tileChars.map(tileHtml).join('');
   tiles.querySelectorAll('.tile').forEach((el, idx) => {
     el.addEventListener('click', () => {
       // mouse: drive the first unlocked slot
@@ -267,9 +286,10 @@ function goSelect() {
   show('select');
 }
 
-function slotChar(s: Slot): CharId { const c = TILE_CHARS[s.cur]; return c === 'random' ? (s.char || 'nong') : c; }
+function slotChar(s: Slot): CharId { const c = getSelectTiles()[s.cur]; return !c || c === 'random' ? (s.char || 'nong') : c; }
 
 function paintSelect() {
+  const tileChars = getSelectTiles();
   const tiles = $('#tiles').querySelectorAll('.tile');
   tiles.forEach((el, i) => {
     el.classList.toggle('h1', !!slots[0].src && slots[0].cur === i);
@@ -278,7 +298,7 @@ function paintSelect() {
   for (const i of [0, 1] as const) {
     const s = slots[i];
     const pan = $(i === 0 ? '#pan1' : '#pan2');
-    let c: CharId = TILE_CHARS[s.cur] === 'random' ? (i === 0 ? 'nong' : 'nang') : (TILE_CHARS[s.cur] as CharId);
+    let c: CharId = tileChars[s.cur] === 'random' || !tileChars[s.cur] ? (i === 0 ? 'nong' : 'nang') : (tileChars[s.cur] as CharId);
     if (s.locked) c = s.char;
     const info = CHARS[c];
     const isAlt = i === 1 && slots[0].locked && slots[1].locked && slots[0].char === c && mode !== 'online';
@@ -289,9 +309,9 @@ function paintSelect() {
     pan.classList.toggle('empty', empty);
     pan.classList.toggle('locked', s.locked);
     const img = pan.querySelector('.por') as HTMLImageElement;
-    const src = isAlt ? altPortrait[c] : c === 'nong' ? URLS.nongPortrait : URLS.nangPortrait;
+    const src = isAlt ? altPortrait[c] : portraitUrl(c);
     if (img.dataset.src !== src) { img.src = src; img.dataset.src = src; img.classList.remove('pop'); void img.offsetWidth; img.classList.add('pop'); }
-    const random = TILE_CHARS[s.cur] === 'random' && !s.locked;
+    const random = tileChars[s.cur] === 'random' && !s.locked;
     const label = i === 0 ? 'PLAYER 1' : mode === 'cpu' ? 'CPU · ' + DIFFS.find((d) => d.id === cpuDiff)!.t : mode === 'online' ? 'OPPONENT' : 'PLAYER 2';
     pan.querySelector('.tag')!.textContent = label;
     pan.querySelector('.nm')!.textContent = random ? '???' : info.name;
@@ -311,17 +331,20 @@ function paintSelect() {
 function lockSlot(i: 0 | 1) {
   const s = slots[i];
   if (s.locked) return;
-  const c = TILE_CHARS[s.cur];
-  s.char = c === 'random' ? (Math.random() < 0.5 ? 'nong' : 'nang') : c;
-  if (c === 'random') s.cur = TILE_CHARS.indexOf(s.char);
+  const tileChars = getSelectTiles();
+  const unlocked = getUnlockedChars();
+  const c = tileChars[s.cur];
+  s.char = c === 'random' || !c ? unlocked[Math.floor(Math.random() * unlocked.length)] : c;
+  if (c === 'random') s.cur = Math.max(0, tileChars.indexOf(s.char));
   s.locked = true;
   audio.play('join');
   menuFx.burst(i === 0 ? 240 : 1040, 400, 30, charColor(s.char, false), 400);
   if (mode === 'cpu' && i === 0) {
-    // CPU takes the other fighter
+    // CPU takes a different fighter
     slots[1].src = null;
-    slots[1].char = s.char === 'nong' ? 'nang' : 'nong';
-    slots[1].cur = TILE_CHARS.indexOf(slots[1].char);
+    const others = unlocked.filter((ch) => ch !== s.char);
+    slots[1].char = others.length ? others[Math.floor(Math.random() * others.length)] : (s.char === 'nong' ? 'nang' : 'nong');
+    slots[1].cur = Math.max(0, tileChars.indexOf(slots[1].char));
     setTimeout(() => { slots[1].locked = true; audio.play('join'); paintSelect(); checkSelectDone(); }, 450);
   }
   if (mode === 'online') {
@@ -380,13 +403,14 @@ handlers.select = (e) => {
 
 function navSlot(i: 0 | 1, e: NavEvent) {
   const s = slots[i];
+  const n = getSelectTiles().length;
   if (s.locked) {
     if (e.a === 'back' && !(mode === 'cpu' && slots[1].locked)) { s.locked = false; audio.play('menuBack'); paintSelect(); }
     else if (e.a === 'back' && mode === 'cpu') { slots[0].locked = false; slots[1].locked = false; audio.play('menuBack'); paintSelect(); }
     return;
   }
-  if (e.a === 'left' || e.a === 'up') { s.cur = (s.cur + 2) % 3; audio.play('menuMove'); paintSelect(); }
-  else if (e.a === 'right' || e.a === 'down') { s.cur = (s.cur + 1) % 3; audio.play('menuMove'); paintSelect(); }
+  if (e.a === 'left' || e.a === 'up') { s.cur = (s.cur + n - 1) % n; audio.play('menuMove'); paintSelect(); }
+  else if (e.a === 'right' || e.a === 'down') { s.cur = (s.cur + 1) % n; audio.play('menuMove'); paintSelect(); }
   else if (e.a === 'confirm') lockSlot(i);
   else if (e.a === 'back') {
     audio.play('menuBack');
@@ -398,8 +422,8 @@ function navSlot(i: 0 | 1, e: NavEvent) {
 
 // ---------------------------------------------------------------- VS splash
 function startVs(a: SideCfg, b: SideCfg, then: () => void) {
-  const pa = a.alt ? altPortrait[a.char] : a.char === 'nong' ? URLS.nongPortrait : URLS.nangPortrait;
-  const pb = b.alt ? altPortrait[b.char] : b.char === 'nong' ? URLS.nongPortrait : URLS.nangPortrait;
+  const pa = a.alt ? altPortrait[a.char] : portraitUrl(a.char);
+  const pb = b.alt ? altPortrait[b.char] : portraitUrl(b.char);
   const el = $('#s-vs');
   el.style.setProperty('--ca', charColor(a.char, a.alt));
   el.style.setProperty('--cb', charColor(b.char, b.alt));
@@ -429,9 +453,12 @@ let pauseMenu: Menu;
 function pause() {
   if (!battle || screen !== 'battle') return;
   if (mode !== 'online') battle.paused = true;
+  const touchToggle: MItem[] = (isTouch || settings.touch !== 'off') && mode !== 'versus'
+    ? [{ t: 'CONTROLS: ' + (settings.touch === 'buttons' ? 'BUTTONS' : 'SWIPE'), s: 'Tap to switch between Swipe & Buttons', act: () => { toggleTouchMode(); pause(); } }]
+    : [];
   const items: MItem[] = mode === 'online'
-    ? [{ t: 'RESUME', act: resume }, { t: 'LEAVE MATCH', act: () => { resume(); net.leaveDuel(); goMenu(); } }]
-    : [{ t: 'RESUME', act: resume }, { t: 'RESTART MATCH', act: () => { resume(); if (lastCfg) startBattle(lastCfg[0], lastCfg[1]); } }, { t: 'SETTINGS', act: () => goSettings('pause') }, { t: 'QUIT TO MENU', act: () => { battle = null; goMenu(); } }];
+    ? [{ t: 'RESUME', act: resume }, ...touchToggle, { t: 'LEAVE MATCH', act: () => { resume(); net.leaveDuel(); goMenu(); } }]
+    : [{ t: 'RESUME', act: resume }, ...touchToggle, { t: 'RESTART MATCH', act: () => { resume(); if (lastCfg) startBattle(lastCfg[0], lastCfg[1]); } }, { t: 'SETTINGS', act: () => goSettings('pause') }, { t: 'QUIT TO MENU', act: () => { battle = null; goMenu(); } }];
   pauseMenu = new Menu($('#pausemenu'), items);
   audio.musicMode('quiet');
   show('pause', true);
@@ -460,7 +487,7 @@ function showResults(w: 0 | 1) {
     if (!all.length && s.remote && s.remote.stats) { const r = s.remote.stats; Object.assign(sum, { lines: r.lines, attack: r.attack, quads: r.quads, spins: r.spins, maxCombo: r.maxCombo, pieces: r.pieces, time: r.time }); }
     return sum;
   });
-  for (const t of tot) { record.quads += 0; record.bestCombo = Math.max(record.bestCombo, t.maxCombo); }
+  for (const t of tot) { record.quads += t.quads; record.bestCombo = Math.max(record.bestCombo, t.maxCombo); }
   save();
   const rows: [string, (t: typeof tot[0]) => number, string?][] = [
     ['LINES CLEARED', (t) => t.lines], ['ATTACK SENT', (t) => t.attack], ['QUADS', (t) => t.quads], ['T-SPINS', (t) => t.spins],
@@ -498,7 +525,7 @@ const SET_ROWS: SetRow[] = [
   { k: 'GHOST PIECE', sub: 'Shows where your piece will land', get: () => (settings.ghost ? 'ON' : 'OFF'), change: () => { settings.ghost = !settings.ghost; } },
   { k: 'SCREEN SHAKE', sub: 'Camera shake on big hits', get: () => (settings.shake ? 'ON' : 'OFF'), change: () => { settings.shake = !settings.shake; } },
   { k: 'FLASHING', sub: 'Full-screen flashes on supers and K.O.', get: () => (settings.reducedFlash ? 'REDUCED' : 'FULL'), change: () => { settings.reducedFlash = !settings.reducedFlash; } },
-  { k: 'TOUCH BUTTONS', sub: 'On-screen controls for phones and tablets', get: () => settings.touch.toUpperCase(), change: (d) => { settings.touch = cycle(['auto', 'on', 'off'] as const, settings.touch, d) as any; } },
+  { k: 'MOBILE CONTROLS', sub: 'Swipe gestures (default) or full Left/Right buttons', get: () => settings.touch.toUpperCase(), change: (d) => { settings.touch = cycle(['swipe', 'buttons', 'off'] as const, settings.touch, d); updateTouch(); } },
 ];
 function goSettings(from: ScreenId) { setFrom = from; setIdx = 0; paintSettings(); show('settings', from === 'pause'); }
 function paintSettings() {
@@ -520,7 +547,7 @@ function paintSettings() {
 function leaveSettings() {
   audio.play('menuBack'); save();
   if (battle) { battle.fx.shakeOn = settings.shake; battle.fx.reduced = settings.reducedFlash; }
-  if (setFrom === 'pause') { show('pause', true); } else goMenu();
+  if (setFrom === 'pause') { pause(); } else goMenu();
 }
 handlers.settings = (e) => {
   const n = SET_ROWS.length + 1;
@@ -543,9 +570,9 @@ const HOW = [
   },
   {
     t: 'CONTROLS', cols: [
-      `<h5>PLAYER 1 · LEFT KEYS</h5><table><tr><td>Move</td><td><kbd>A</kbd><kbd>D</kbd></td></tr><tr><td>Soft drop</td><td><kbd>S</kbd></td></tr><tr><td>Hard drop</td><td><kbd>Space</kbd></td></tr><tr><td>Rotate right / left</td><td><kbd>W</kbd> <kbd>Q</kbd></td></tr><tr><td>Hold</td><td><kbd>E</kbd></td></tr><tr><td>Super</td><td><kbd>R</kbd></td></tr></table>`,
-      `<h5>PLAYER 2 · RIGHT KEYS</h5><table><tr><td>Move</td><td><kbd>←</kbd><kbd>→</kbd></td></tr><tr><td>Soft drop</td><td><kbd>↓</kbd></td></tr><tr><td>Hard drop</td><td><kbd>Enter</kbd></td></tr><tr><td>Rotate right / left</td><td><kbd>↑</kbd> <kbd>/</kbd></td></tr><tr><td>Hold</td><td><kbd>Right Shift</kbd></td></tr><tr><td>Super</td><td><kbd>.</kbd></td></tr></table><p style="margin-top:10px">Playing alone? Both key sets work, plus <kbd>Z</kbd><kbd>X</kbd> rotate, <kbd>C</kbd> hold, <kbd>V</kbd> super.</p>`,
-      `<h5>CONTROLLER</h5><table><tr><td>Move / soft drop</td><td>D-pad or stick</td></tr><tr><td>Hard drop</td><td>D-pad ↑</td></tr><tr><td>Rotate right / left</td><td>Ⓐ / Ⓑ</td></tr><tr><td>Hold</td><td>Ⓧ or bumpers</td></tr><tr><td>Super</td><td>Ⓨ</td></tr><tr><td>Pause</td><td>Start</td></tr></table><p style="margin-top:10px">On a phone or tablet, on-screen buttons appear in VS CPU and Online.</p>`,
+      `<h5>PHONE · SWIPE &amp; BUTTONS</h5><table><tr><td>Slide left / right</td><td>Move</td></tr><tr><td>Tap screen</td><td>Rotate</td></tr><tr><td>Flick down</td><td>Hard drop</td></tr><tr><td>Hold down</td><td>Soft drop</td></tr><tr><td>Flick up / Tap Hold</td><td>Hold piece</td></tr><tr><td>Tap Super</td><td>Fire Super</td></tr></table><p style="margin-top:8px">Prefer buttons? Tap <b>SWIPE</b> at the top of a match (or in Settings) to switch to <b>BUTTONS</b> mode with Left/Right thumb controls.</p>`,
+      `<h5>KEYBOARD · P1 &amp; P2</h5><table><tr><td>P1 Move / Drop</td><td><kbd>A</kbd><kbd>D</kbd> / <kbd>S</kbd> <kbd>Space</kbd></td></tr><tr><td>P1 Rotate / Hold / Super</td><td><kbd>W</kbd><kbd>Q</kbd> / <kbd>E</kbd> / <kbd>R</kbd></td></tr><tr><td>P2 Move / Drop</td><td><kbd>←</kbd><kbd>→</kbd> / <kbd>↓</kbd> <kbd>Enter</kbd></td></tr><tr><td>P2 Rotate / Hold / Super</td><td><kbd>↑</kbd><kbd>/</kbd> / <kbd>Shift</kbd> / <kbd>.</kbd></td></tr></table><p style="margin-top:8px">Playing solo? Both key sets work, plus <kbd>Z</kbd><kbd>X</kbd> rotate, <kbd>C</kbd> hold, <kbd>V</kbd> super.</p>`,
+      `<h5>CONTROLLER</h5><table><tr><td>Move / soft drop</td><td>D-pad or stick</td></tr><tr><td>Hard drop</td><td>D-pad ↑</td></tr><tr><td>Rotate right / left</td><td>Ⓐ / Ⓑ</td></tr><tr><td>Hold</td><td>Ⓧ or bumpers</td></tr><tr><td>Super</td><td>Ⓨ</td></tr><tr><td>Pause</td><td>Start</td></tr></table>`,
     ],
   },
 ];
@@ -661,7 +688,7 @@ net.onDuel = (p: DuelPresence) => {
     const prev = onlineOppChar;
     onlineOppChar = p.ch || null;
     onlineOppReady = !!p.rdy && !!p.ch;
-    if (p.ch) { slots[1].char = p.ch; slots[1].cur = TILE_CHARS.indexOf(p.ch); }
+    if (p.ch) { slots[1].char = p.ch; slots[1].cur = Math.max(0, getSelectTiles().indexOf(p.ch)); }
     slots[1].locked = onlineOppReady;
     if (prev !== onlineOppChar || true) paintSelect();
     onlineMaybeStart();
@@ -759,58 +786,205 @@ function onlineRematch() {
 }
 
 // ---------------------------------------------------------------- touch controls
-const TOUCH: { id: keyof typeof input.touch; label: string; x: number; y: number; sm?: boolean }[] = [
-  { id: 'hold', label: 'HOLD', x: 13, y: 420, sm: true }, { id: 'ccw', label: 'TURN', x: 13, y: 520, sm: true },
-  { id: 'super', label: 'SUPER', x: 1183, y: 420, sm: true }, { id: 'hard', label: 'DROP', x: 1183, y: 520, sm: true },
+interface TouchBtnDef {
+  id: keyof typeof input.touch;
+  icon: string;
+  label: string;
+  cls?: string;
+  dpad?: boolean;
+  swipePos?: [number, number, number, number]; // x, y, w, h in SWIPE mode
+  btnPos: [number, number, number, number];    // x, y, w, h in BUTTONS mode
+}
+
+// Ergonomic landscape thumb arcs:
+// - SWIPE mode (default): uncrowded edge pills tucked in bottom corners, leaving the board & center open.
+// - BUTTONS mode (optional): Left thumb gets Left/Right rocker + Soft drop + Hold; Right thumb gets big Rotate + Drop + Turn + Super.
+const TOUCH_BTNS: TouchBtnDef[] = [
+  // Left-hand movement cluster (BUTTONS mode only)
+  { id: 'left', icon: '◀', label: 'LEFT', cls: 'only-buttons', dpad: true, btnPos: [8, 514, 92, 92] },
+  { id: 'right', icon: '▶', label: 'RIGHT', cls: 'only-buttons', dpad: true, btnPos: [106, 514, 92, 92] },
+  { id: 'soft', icon: '▼', label: 'DOWN', cls: 'only-buttons', dpad: true, btnPos: [57, 614, 92, 78] },
+  // Left-hand utility (both modes, repositioned cleanly per mode)
+  { id: 'hold', icon: '⇄', label: 'HOLD', swipePos: [12, 468, 88, 74], btnPos: [12, 424, 88, 76] },
+  { id: 'ccw', icon: '⟲', label: 'TURN', cls: 'only-swipe', swipePos: [12, 554, 88, 74], btnPos: [1066, 452, 84, 84] },
+  // Right-hand action cluster
+  { id: 'cw', icon: '⟳', label: 'ROTATE', cls: 'only-buttons pri', btnPos: [1166, 510, 102, 102] },
+  { id: 'ccw', icon: '⟲', label: 'TURN', cls: 'only-buttons', btnPos: [1066, 452, 84, 84] },
+  { id: 'hard', icon: '⬇', label: 'DROP', cls: 'drp', swipePos: [1180, 554, 88, 74], btnPos: [1056, 554, 94, 94] },
+  { id: 'super', icon: '★', label: 'SUPER', cls: 'sup', swipePos: [1180, 468, 88, 74], btnPos: [1172, 412, 92, 80] },
 ];
+
+const touchEls: { def: TouchBtnDef; el: HTMLButtonElement }[] = [];
+let superBtns: HTMLButtonElement[] = [];
+
+function setTouchControl(id: keyof typeof input.touch, v: boolean, el?: HTMLElement) {
+  (input.touch as any)[id] = v;
+  if (v) input.held.add(id); else input.held.delete(id);
+  if (el) el.classList.toggle('on', v);
+}
+
+function toggleTouchMode() {
+  settings.touch = settings.touch === 'buttons' ? 'swipe' : 'buttons';
+  save();
+  audio.play('menuSelect');
+  updateTouch();
+  toast(settings.touch === 'buttons' ? 'BUTTONS MODE · Left/Right thumb controls' : 'SWIPE MODE · Slide, tap & flick');
+}
+
 function buildTouch() {
   const root = $('#touch');
-  for (const b of TOUCH) {
+  const dpadPtrs = new Map<number, { id: keyof typeof input.touch; el: HTMLButtonElement }>();
+
+  for (const b of TOUCH_BTNS) {
     const el = document.createElement('button');
-    el.textContent = b.label;
-    if (b.sm) el.className = 'sm';
-    el.style.left = b.x + 'px'; el.style.top = b.y + 'px';
-    const on = (v: boolean) => (e: PointerEvent) => { e.preventDefault(); e.stopPropagation(); (input.touch as any)[b.id] = v; if (v) input.held.add(b.id); else input.held.delete(b.id); el.classList.toggle('on', v); if (v) audio.unlock(); };
-    el.addEventListener('pointerdown', on(true));
-    el.addEventListener('pointerup', on(false));
-    el.addEventListener('pointerleave', on(false));
-    el.addEventListener('pointercancel', on(false));
+    if (b.cls) el.className = b.cls;
+    el.dataset.cid = b.id;
+    el.innerHTML = `<span class="ic">${b.icon}</span><span class="lb">${b.label}</span>`;
+    if (b.id === 'super') superBtns.push(el);
+
+    if (b.dpad) {
+      // Rocker D-pad: sliding thumb between ◀, ▶, and ▼ smoothly switches direction without lifting
+      el.addEventListener('pointerdown', (e) => {
+        e.preventDefault(); e.stopPropagation(); audio.unlock();
+        try { el.setPointerCapture(e.pointerId); } catch { /* ignore */ }
+        dpadPtrs.set(e.pointerId, { id: b.id, el });
+        setTouchControl(b.id, true, el);
+      });
+      el.addEventListener('pointermove', (e) => {
+        const cur = dpadPtrs.get(e.pointerId);
+        if (!cur) return;
+        const hit = document.elementFromPoint(e.clientX, e.clientY)?.closest('button') as HTMLButtonElement | null;
+        const nextId = hit?.dataset.cid as keyof typeof input.touch | undefined;
+        if (hit && (nextId === 'left' || nextId === 'right' || nextId === 'soft') && nextId !== cur.id) {
+          setTouchControl(cur.id, false, cur.el);
+          dpadPtrs.set(e.pointerId, { id: nextId, el: hit });
+          setTouchControl(nextId, true, hit);
+        }
+      });
+      const endDpad = (e: PointerEvent) => {
+        const cur = dpadPtrs.get(e.pointerId);
+        if (!cur) return;
+        dpadPtrs.delete(e.pointerId);
+        setTouchControl(cur.id, false, cur.el);
+      };
+      el.addEventListener('pointerup', endDpad);
+      el.addEventListener('pointercancel', endDpad);
+    } else {
+      const on = (v: boolean) => (e: PointerEvent) => {
+        e.preventDefault(); e.stopPropagation();
+        if (v) audio.unlock();
+        setTouchControl(b.id, v, el);
+      };
+      el.addEventListener('pointerdown', on(true));
+      el.addEventListener('pointerup', on(false));
+      el.addEventListener('pointerleave', on(false));
+      el.addEventListener('pointercancel', on(false));
+    }
     root.appendChild(el);
+    touchEls.push({ def: b, el });
   }
-  // swipe gestures on the board: drag sideways to move, tap to rotate, flick down to drop, hold down to soft drop
+
+  $('#touchmodebtn').addEventListener('click', (e) => {
+    e.preventDefault(); e.stopPropagation();
+    toggleTouchMode();
+  });
+
+  // Multi-touch gesture surface across the stage:
+  // - Tracks each finger independently so two thumbs never cancel each other.
+  // - Tapping the HOLD box or SUPER bar on the HUD triggers Hold / Super directly.
+  // - In SWIPE mode: forgiving drag sideways to move, tap to rotate, flick down to drop, hold down to soft drop, flick up to hold.
   const g = $('#gest');
-  let sx = 0, sy = 0, st = 0, moved = 0, id = -1, softing = false, lx = 0;
-  const pt = (e: PointerEvent) => { const r = stage.getBoundingClientRect(); return [(e.clientX - r.left) / scale, (e.clientY - r.top) / scale]; };
+  interface PtrTrack { sx: number; sy: number; lx: number; st: number; moved: number; softing: boolean; }
+  const ptrs = new Map<number, PtrTrack>();
+  const pt = (e: PointerEvent): [number, number] => {
+    const r = stage.getBoundingClientRect();
+    return [(e.clientX - r.left) / scale, (e.clientY - r.top) / scale];
+  };
+  const syncSoft = () => {
+    let anySoft = false;
+    for (const p of ptrs.values()) if (p.softing) { anySoft = true; break; }
+    input.touch.soft = anySoft || input.held.has('soft');
+  };
+
   g.addEventListener('pointerdown', (e) => {
     e.preventDefault(); audio.unlock();
-    id = e.pointerId; const [x, y] = pt(e); sx = lx = x; sy = y; st = performance.now(); moved = 0; softing = false;
-    try { g.setPointerCapture(id); } catch { /* ignore */ }
+    const [x, y] = pt(e);
+    // Direct HUD tap zones: P1 HOLD panel (top-left) and P1 SUPER bar (bottom of well)
+    if (x >= 4 && x <= 108 && y >= 120 && y <= 220) {
+      input.taps.push('hold');
+      return;
+    }
+    if (x >= 108 && x <= 394 && y >= 672 && y <= 718) {
+      input.taps.push('super');
+      return;
+    }
+    ptrs.set(e.pointerId, { sx: x, sy: y, lx: x, st: performance.now(), moved: 0, softing: false });
+    try { g.setPointerCapture(e.pointerId); } catch { /* ignore */ }
   });
+
   g.addEventListener('pointermove', (e) => {
-    if (e.pointerId !== id) return;
+    const tr = ptrs.get(e.pointerId);
+    if (!tr) return;
+    if (settings.touch === 'buttons') return; // In BUTTONS mode, use the Left/Right buttons for movement
     const [x, y] = pt(e);
-    const step = 26;
-    while (x - lx > step) { input.taps.push('right'); lx += step; moved++; }
-    while (lx - x > step) { input.taps.push('left'); lx -= step; moved++; }
-    if (y - sy > 60 && Math.abs(x - sx) < 50 && performance.now() - st > 220) { softing = true; input.touch.soft = true; }
+    const step = 25;
+    while (x - tr.lx > step) { input.taps.push('right'); tr.lx += step; tr.moved++; }
+    while (tr.lx - x > step) { input.taps.push('left'); tr.lx -= step; tr.moved++; }
+    // Forgiving soft-drop hold: pull down and hold
+    if (!tr.softing && tr.moved <= 1 && y - tr.sy > 48 && Math.abs(x - tr.sx) < 55 && performance.now() - tr.st > 180) {
+      tr.softing = true;
+      syncSoft();
+    } else if (tr.softing && y - tr.sy < 24) {
+      tr.softing = false;
+      syncSoft();
+    }
   });
+
   const end = (e: PointerEvent) => {
-    if (e.pointerId !== id) return;
-    id = -1;
+    const tr = ptrs.get(e.pointerId);
+    if (!tr) return;
+    ptrs.delete(e.pointerId);
     const [x, y] = pt(e);
-    const dt = performance.now() - st, dy = y - sy, dx = x - sx;
-    if (softing) { input.touch.soft = false; return; }
-    if (dy > 70 && dt < 320 && Math.abs(dx) < 60) input.taps.push('hard');
-    else if (dy < -70 && dt < 320) input.taps.push('hold');
-    else if (moved === 0 && Math.abs(dx) < 12 && Math.abs(dy) < 12 && dt < 300) input.taps.push('cw');
+    const dt = performance.now() - tr.st, dy = y - tr.sy, dx = x - tr.sx;
+    if (tr.softing) { syncSoft(); return; }
+    if (settings.touch === 'buttons') {
+      // In BUTTONS mode, tapping the board still rotates for convenience, without swipe drops
+      if (Math.abs(dx) < 22 && Math.abs(dy) < 22 && dt < 360) input.taps.push('cw');
+      return;
+    }
+    // Forgiving gesture recognition: only trigger vertical flicks when the thumb wasn't sliding horizontally
+    if (tr.moved <= 1 && dy > 62 && dt < 290 && Math.abs(dx) < Math.abs(dy) * 0.85) {
+      input.taps.push('hard');
+    } else if (tr.moved <= 1 && dy < -58 && dt < 300 && Math.abs(dx) < Math.abs(dy) * 0.85) {
+      input.taps.push('hold');
+    } else if (tr.moved === 0 && Math.abs(dx) < 22 && Math.abs(dy) < 22 && dt < 360) {
+      input.taps.push('cw');
+    }
   };
   g.addEventListener('pointerup', end);
   g.addEventListener('pointercancel', end);
 }
+
 const isTouch = 'ontouchstart' in window || navigator.maxTouchPoints > 0;
 function updateTouch() {
-  const want = settings.touch === 'on' || (settings.touch === 'auto' && isTouch);
-  $('#touch').classList.toggle('on', want && screen === 'battle' && mode !== 'versus');
+  const activeMode = settings.touch === 'off' ? 'off' : settings.touch === 'buttons' ? 'buttons' : (isTouch || settings.touch === 'swipe' ? 'swipe' : 'off');
+  const on = activeMode !== 'off' && screen === 'battle' && mode !== 'versus' && (isTouch || settings.touch === 'buttons');
+  const root = $('#touch');
+  root.classList.toggle('on', on);
+  root.classList.toggle('mode-swipe', activeMode === 'swipe');
+  root.classList.toggle('mode-buttons', activeMode === 'buttons');
+  for (const { def, el } of touchEls) {
+    const pos = activeMode === 'buttons' ? def.btnPos : (def.swipePos || def.btnPos);
+    el.style.left = pos[0] + 'px';
+    el.style.top = pos[1] + 'px';
+    el.style.width = pos[2] + 'px';
+    el.style.height = pos[3] + 'px';
+  }
+  const mbtn = $('#touchmodebtn');
+  if (mbtn) {
+    mbtn.classList.toggle('on', on);
+    mbtn.textContent = activeMode === 'buttons' ? 'BUTTONS' : 'SWIPE';
+  }
 }
 
 // ---------------------------------------------------------------- loop
@@ -837,11 +1011,26 @@ function frame(now: number) {
     onlineTick(dt);
     battle.draw(ctx, drawBg);
     menuFx.draw(ctx, FONT_D);
+    // Highlight on-screen SUPER button when Super meter is full
+    const p1 = battle.sides[0]?.board;
+    const supReady = !!p1 && p1.superMeter >= p1.rules.superCost;
+    for (const sb of superBtns) {
+      sb.classList.toggle('super-ready', supReady);
+      const lb = sb.querySelector('.lb');
+      if (lb) lb.textContent = supReady ? 'READY!' : 'SUPER';
+    }
     if ($('#touch').classList.contains('on') && battle.round === 1 && (battle.phase === 'intro' || battle.phase === 'fight')) {
-      ctx.save(); ctx.textAlign = 'center'; ctx.font = `600 17px 'Chakra Petch', sans-serif`;
-      ctx.fillStyle = 'rgba(5,5,20,0.8)'; ctx.fillRect(116, 540, 270, 92);
+      ctx.save(); ctx.textAlign = 'center'; ctx.font = `600 16px 'Chakra Petch', sans-serif`;
+      ctx.fillStyle = 'rgba(5,5,20,0.84)'; ctx.fillRect(112, 534, 278, 98);
+      ctx.strokeStyle = 'rgba(255,207,74,0.45)'; ctx.lineWidth = 1.5; ctx.strokeRect(112, 534, 278, 98);
       ctx.fillStyle = '#fff';
-      ['Drag sideways to move', 'Tap to rotate · flick down to drop', 'Flick up to hold'].forEach((t, i) => ctx.fillText(t, 251, 566 + i * 26));
+      const lines = settings.touch === 'buttons'
+        ? ['Use ◀ ▶ on left to move', 'Tap ⟳ ROTATE or board to turn', 'Tap SWIPE at top to use gestures']
+        : ['Slide left / right to move', 'Tap to rotate · flick down to drop', 'Want buttons? Tap SWIPE at top'];
+      lines.forEach((t, i) => {
+        ctx.fillStyle = i === 2 ? '#ffcf4a' : '#fff';
+        ctx.fillText(t, 251, 560 + i * 26);
+      });
       ctx.restore();
     }
   } else {
@@ -874,8 +1063,8 @@ async function boot() {
   const fonts = (document as any).fonts;
   const fontP = fonts ? Promise.race([Promise.all([fonts.load(`40px 'Bungee'`), fonts.load(`600 16px 'Chakra Petch'`)]), new Promise((r) => setTimeout(r, 2500))]) : Promise.resolve();
   await Promise.all([loadAll((f) => { bar.style.width = Math.round(f * 100) + '%'; }), fontP]);
-  for (const id of ['nong', 'nang'] as CharId[]) {
-    try { altPortrait[id] = (art.chars[id].portraitAlt as HTMLCanvasElement).toDataURL('image/png'); } catch { altPortrait[id] = id === 'nong' ? URLS.nongPortrait : URLS.nangPortrait; }
+  for (const id of Object.keys(CHARS) as CharId[]) {
+    try { altPortrait[id] = (art.chars[id].portraitAlt as HTMLCanvasElement).toDataURL('image/png'); } catch { altPortrait[id] = portraitUrl(id); }
   }
   audio.setVolumes(settings.music, settings.sfx);
   buildMainMenu();
@@ -886,8 +1075,8 @@ async function boot() {
     $('#s-title .press').textContent = pendingJoin ? 'TAP TO JOIN THE FIGHT' : 'PRESS ANY BUTTON';
   }
   goTitle();
-  // hidden test hooks for automated play-testing
-  (window as any).__bc = { get battle() { return battle; }, get screen() { return screen; }, autoPlay: (d: Difficulty = 'normal') => { const s = battle && battle.sides[0]; if (s) { s.cfg.kind = 'cpu'; s.cpu = new CpuController(d); (battle as any).autoDiff = d; } }, startCpuDemo: (d: Difficulty = 'hard', d2: Difficulty = d) => { mode = 'cpu'; const a: SideCfg = { kind: 'cpu', diff: d2, char: 'nong', alt: false, label: 'CPU A' }; const b: SideCfg = { kind: 'cpu', diff: d, char: 'nang', alt: false, label: 'CPU B' }; startBattle(a, b); }, net };
+  // hidden test hooks for automated play-testing and secret character unlocking
+  (window as any).__bc = { get battle() { return battle; }, get screen() { return screen; }, unlockSecretChar, autoPlay: (d: Difficulty = 'normal') => { const s = battle && battle.sides[0]; if (s) { s.cfg.kind = 'cpu'; s.cpu = new CpuController(d); (battle as any).autoDiff = d; } }, startCpuDemo: (d: Difficulty = 'hard', d2: Difficulty = d) => { mode = 'cpu'; const a: SideCfg = { kind: 'cpu', diff: d2, char: 'nong', alt: false, label: 'CPU A' }; const b: SideCfg = { kind: 'cpu', diff: d, char: 'nang', alt: false, label: 'CPU B' }; startBattle(a, b); }, net };
 }
 requestAnimationFrame(frame);
 boot();

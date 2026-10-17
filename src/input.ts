@@ -26,10 +26,10 @@ export class Input {
   navEvents: NavEvent[] = [];
   anyPressed = false;
   touch: Controls = emptyControls();
-  /** queued one-shot presses from swipe gestures */
+  /** queued one-shot presses from swipe gestures / tap buttons */
   taps: (keyof Controls)[] = [];
-  private tapOn: keyof Controls | null = null;
-  private tapGap = false;
+  private activeTaps = new Set<keyof Controls>();
+  private cooldownTaps = new Set<keyof Controls>();
   padConnected: boolean[] = [false, false, false, false];
   private padPrev: Record<number, Record<string, boolean>> = {};
   lastSource: SourceId = 'kb2';
@@ -54,13 +54,29 @@ export class Input {
   }
 
   private any(codes: string[]) { for (const c of codes) if (this.keys.has(c) || this.fresh.has(c)) return true; return false; }
-  /** call at the end of each frame: quick taps count as held for one frame */
+  /** call at the end of each frame: quick taps count as held for one frame, with 1-frame release before repeating the same key */
   endFrame() {
     this.fresh.clear();
-    // advance gesture taps: press for one frame, release for one frame
-    if (this.tapOn) { (this.touch as any)[this.tapOn] = this.held.has(this.tapOn); this.tapOn = null; this.tapGap = true; }
-    else if (this.tapGap) this.tapGap = false;
-    else if (this.taps.length) { this.tapOn = this.taps.shift()!; (this.touch as any)[this.tapOn] = true; }
+    this.cooldownTaps.clear();
+    for (const k of this.activeTaps) {
+      (this.touch as any)[k] = this.held.has(k);
+      if (!this.held.has(k)) this.cooldownTaps.add(k);
+    }
+    this.activeTaps.clear();
+    if (this.taps.length) {
+      const rem: (keyof Controls)[] = [];
+      for (const k of this.taps) {
+        // Don't fire left & right on the same frame, and wait 1 frame if the same key just released
+        const opposite = k === 'left' ? 'right' : k === 'right' ? 'left' : null;
+        if (!this.activeTaps.has(k) && !this.cooldownTaps.has(k) && !(opposite && (this.activeTaps.has(opposite) || this.cooldownTaps.has(opposite)))) {
+          this.activeTaps.add(k);
+          (this.touch as any)[k] = true;
+        } else {
+          rem.push(k);
+        }
+      }
+      this.taps = rem;
+    }
   }
   /** buttons currently held on screen */
   held = new Set<keyof Controls>();

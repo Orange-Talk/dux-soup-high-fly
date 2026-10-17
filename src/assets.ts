@@ -18,6 +18,8 @@ export interface CharArt {
 
 export const META = atlasMeta as { cell: number; cols: number; frames: Record<CharId, Record<string, number[]>> };
 export const URLS = { nongPortrait, nangPortrait, bgUrl };
+export const PORTRAIT_URLS: Record<CharId, string> = { nong: nongPortrait, nang: nangPortrait };
+export const portraitUrl = (id: CharId): string => PORTRAIT_URLS[id] || nongPortrait;
 
 export const art: {
   chars: Record<CharId, CharArt>;
