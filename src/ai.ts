@@ -3,10 +3,10 @@ import { Board, COLS, ROWS, SHAPES, PieceType, collides, spawnPos, Controls, emp
 export type Difficulty = 'easy' | 'normal' | 'hard' | 'master';
 interface DiffCfg { think: number; step: number; mistake: number; lookahead: boolean; hold: boolean; build: boolean; }
 const DIFF: Record<Difficulty, DiffCfg> = {
-  easy: { think: 700, step: 150, mistake: 0.2, lookahead: false, hold: false, build: false },
-  normal: { think: 320, step: 85, mistake: 0.12, lookahead: false, hold: true, build: true },
-  hard: { think: 140, step: 48, mistake: 0.03, lookahead: true, hold: true, build: true },
-  master: { think: 50, step: 22, mistake: 0, lookahead: true, hold: true, build: true },
+  easy:   { think: 1550, step: 310, mistake: 0.62, lookahead: false, hold: false, build: false },
+  normal: { think: 920,  step: 190, mistake: 0.35, lookahead: false, hold: true,  build: false },
+  hard:   { think: 480,  step: 115, mistake: 0.16, lookahead: false, hold: true,  build: true },
+  master: { think: 250,  step: 65,  mistake: 0.05, lookahead: true,  hold: true,  build: true },
 };
 
 interface Plan { r: number; x: number; hold: boolean; score: number; }
@@ -112,7 +112,7 @@ export class CpuController {
     const key = b.stats.pieces + ':' + b.cur.t + ':' + (b.hold ?? '');
     if (key !== this.lastCurKey && !this.plan) {
       this.lastCurKey = key;
-      this.wait = this.cfg.think * (0.7 + Math.random() * 0.6);
+      this.wait = this.cfg.think * (0.75 + Math.random() * 0.55);
       this.plan = this.decide(b);
       this.holdDone = false;
       this.attempts = 0;
@@ -120,13 +120,13 @@ export class CpuController {
     if (!this.plan) { this.c = emptyControls(); return this.c; }
     this.wait -= dt;
     if (this.wait > 0) return emptyControls();
-    this.wait = this.cfg.step * (0.75 + Math.random() * 0.5);
+    this.wait = this.cfg.step * (0.8 + Math.random() * 0.45);
     const c = emptyControls();
     const p = this.plan;
-    // super usage
-    if (b.superMeter >= b.rules.superCost) {
+    // super usage (Rookie uses Super sparingly so beginners don't get overwhelmed)
+    if (b.superMeter >= b.rules.superCost && (this.diff !== 'easy' || Math.random() < 0.15)) {
       const top = b.stackTop();
-      if ((b.character === 'nong' && (b.incomingTotal >= 2 || Math.random() < 0.3)) || (b.character !== 'nong' && top < 12)) {
+      if ((b.character === 'nong' && (b.incomingTotal >= 2 || Math.random() < 0.3)) || (b.character !== 'nong' && (top < 12 || b.incomingTotal >= 2))) {
         c.super = true; this.tap(c); return c;
       }
     }
@@ -140,7 +140,10 @@ export class CpuController {
     } else if (cur.x < p.x) c.right = true;
     else if (cur.x > p.x) c.left = true;
     else {
-      if (this.diff === 'easy' && Math.random() < 0.4) { c.soft = true; this.c = c; return c; }
+      // Rookie never slams pieces with hard-drop; Brawler soft-drops more than half the time
+      if (this.diff === 'easy' || (this.diff === 'normal' && Math.random() < 0.55)) {
+        c.soft = true; this.c = c; return c;
+      }
       c.hard = true; this.finish();
     }
     this.tap(c);
@@ -164,7 +167,9 @@ export class CpuController {
     if (!plans.length) return { r: cur.r, x: cur.x, hold: false, score: 0 };
     plans.sort((a, b2) => b2.score - a.score);
     if (Math.random() < this.cfg.mistake) {
-      const k = Math.min(plans.length - 1, 1 + Math.floor(Math.random() * (this.diff === 'easy' ? 3 : 4)));
+      const minRank = this.diff === 'easy' ? 2 : 1;
+      const spread = this.diff === 'easy' ? 11 : this.diff === 'normal' ? 7 : 4;
+      const k = Math.min(plans.length - 1, minRank + Math.floor(Math.random() * spread));
       return plans[k];
     }
     return plans[0];

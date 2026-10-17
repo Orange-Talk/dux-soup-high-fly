@@ -115,7 +115,7 @@ export function spawnPos(t: PieceType): Active {
   return { t, r: 0, x, y };
 }
 
-export type GarbageStyle = 'wall' | 'stair';
+export type GarbageStyle = 'wall' | 'stair' | 'pack';
 export interface Incoming { lines: number; style: GarbageStyle; age: number; id: number; }
 
 export interface Handling { das: number; arr: number; sdf: number; }
@@ -447,8 +447,8 @@ export class Board {
     for (let y = 0; y < n; y++) for (let x = 0; x < COLS; x++) if (this.grid[y * COLS + x]) { this.alive && this.topOutLater(); }
     this.grid.copyWithin(0, n * COLS);
     this.tint.copyWithin(0, n * COLS);
-    if (style === 'wall') {
-      // one clean hole for the whole chunk, move it each attack
+    if (style === 'wall' || style === 'pack') {
+      // one clean hole for the whole chunk (or initial pair), move it each attack
       let c = Math.floor(this.holeRng() * COLS);
       if (c === this.holeCol) c = (c + 1 + Math.floor(this.holeRng() * (COLS - 1))) % COLS;
       this.holeCol = c;
@@ -461,6 +461,9 @@ export class Board {
         if (this.holeCol >= COLS) { this.holeCol = COLS - 2; this.stairDir = -1; }
         if (this.holeCol < 0) { this.holeCol = 1; this.stairDir = 1; }
         hole = this.holeCol;
+      } else if (style === 'pack') {
+        // Husky Tracks: alternates between two neighboring paw-print columns every row
+        hole = i % 2 === 0 ? this.holeCol : (this.holeCol + 2 < COLS ? this.holeCol + 2 : Math.max(0, this.holeCol - 2));
       }
       for (let x = 0; x < COLS; x++) {
         this.grid[y * COLS + x] = x === hole ? 0 : GARBAGE;
@@ -484,6 +487,29 @@ export class Board {
       this.stats.attack += 4;
       this.sentTotal += 4;
       this.emit({ k: 'send', lines: 4, kind: 'super' });
+    } else if (this.character === 'stucchi') {
+      // Arya Attack!: cancel up to 3 incoming garbage lines, dig up bottom 2 rows, and pounce for 3 lines!
+      let rem = 3, wiped = 0;
+      while (rem > 0 && this.incoming.length) {
+        const g = this.incoming[0];
+        if (g.lines <= rem) { rem -= g.lines; wiped += g.lines; this.incoming.shift(); }
+        else { g.lines -= rem; wiped += rem; rem = 0; }
+      }
+      if (wiped) this.emit({ k: 'cancel', lines: wiped });
+      const n = 2;
+      let cleared = 0;
+      for (let y = ROWS - n; y < ROWS; y++) for (let x = 0; x < COLS; x++) if (this.grid[y * COLS + x]) cleared++;
+      this.grid.copyWithin(n * COLS, 0, (ROWS - n) * COLS);
+      this.tint.copyWithin(n * COLS, 0, (ROWS - n) * COLS);
+      this.grid.fill(0, 0, n * COLS);
+      this.tint.fill(0, 0, n * COLS);
+      this.emit({ k: 'burst', rows: [ROWS - 2, ROWS - 1], cells: cleared });
+      this.stats.attack += 3;
+      this.sentTotal += 3;
+      this.emit({ k: 'send', lines: 3, kind: 'super' });
+      if (this.cur && collides(this.grid, this.cur.t, this.cur.r, this.cur.x, this.cur.y)) {
+        while (this.cur.y > -2 && collides(this.grid, this.cur.t, this.cur.r, this.cur.x, this.cur.y)) this.cur.y--;
+      }
     } else {
       // Emerald Burst: blast away the bottom 4 rows of your own stack, hit for 2
       const n = 4;

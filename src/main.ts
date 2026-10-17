@@ -214,12 +214,12 @@ handlers.menu = (e) => { if (!mainMenu.nav(e) && e.a === 'back') { audio.play('m
 
 // ---------------------------------------------------------------- cpu difficulty
 const DIFFS: { id: Difficulty; t: string; d: string; n: number; c: string }[] = [
-  { id: 'easy', t: 'ROOKIE', d: 'Slow, makes mistakes, never holds a piece. Good for learning the ropes.', n: 1, c: '#4ce46c' },
-  { id: 'normal', t: 'BRAWLER', d: 'Builds for quads and uses hold. A fair fight for most players.', n: 2, c: '#2fd9ff' },
-  { id: 'hard', t: 'CHAMPION', d: 'Plans two pieces ahead and keeps the pressure on.', n: 3, c: '#ff9b2f' },
-  { id: 'master', t: 'LEGEND', d: 'Inhumanly fast. You will need T-spins and nerves.', n: 4, c: '#ff4d61' },
+  { id: 'easy', t: 'ROOKIE', d: 'Relaxed pace, makes plenty of mistakes, never hard-drops. Great for casual play.', n: 1, c: '#4ce46c' },
+  { id: 'normal', t: 'BRAWLER', d: 'Steady pace with occasional slips. A fun, fair match for most players.', n: 2, c: '#2fd9ff' },
+  { id: 'hard', t: 'CHAMPION', d: 'Fast hands, uses hold and keeps the pressure on.', n: 3, c: '#ff9b2f' },
+  { id: 'master', t: 'LEGEND', d: 'Lightning fast. Bring your combos, T-spins and supers.', n: 4, c: '#ff4d61' },
 ];
-let cpuIdx = 1;
+let cpuIdx = 0;
 function goCpu() {
   const root = $('#cpucards');
   root.innerHTML = DIFFS.map((d, i) => `<button class="card" data-i="${i}" style="--c:${d.c}"><div class="lv">LEVEL ${d.n}</div><div class="t" style="color:${d.c}">${d.t}</div><p>${d.d}</p><div class="pips">${[1, 2, 3, 4].map((k) => `<i class="${k <= d.n ? 'on' : ''}"></i>`).join('')}</div></button>`).join('');
@@ -243,7 +243,7 @@ handlers.cpu = (e) => {
 interface Slot { src: SourceId | 'solo' | null; cur: number; locked: boolean; char: CharId; }
 function getSelectTiles(): (CharId | 'random')[] {
   const unlocked = getUnlockedChars();
-  return [unlocked[0] || 'nong', 'random', ...unlocked.slice(1)];
+  return [...unlocked, 'random'];
 }
 let slots: [Slot, Slot] = [{ src: null, cur: 0, locked: false, char: 'nong' }, { src: null, cur: 2, locked: false, char: 'nang' }];
 let selectDone = false;
@@ -578,7 +578,7 @@ const HOW = [
     t: 'RULES', cols: [
       `<h5>THE GOAL</h5><p>Clear lines to attack. Every attack drops grey garbage into your rival's well. If their stack spills over the top, they're K.O.</p><p>Win rounds to win the match. Pieces fall faster the longer a round runs.</p>`,
       `<h5>ATTACKS</h5><table><tr><td>Single</td><td>0</td></tr><tr><td>Double</td><td>1</td></tr><tr><td>Triple</td><td>2</td></tr><tr><td>Quad (4 lines)</td><td>4</td></tr><tr><td>T-Spin Single / Double / Triple</td><td>2 / 4 / 6</td></tr><tr><td>Back-to-back bonus</td><td>+1</td></tr><tr><td>Combo (clears in a row)</td><td>+1 to +5</td></tr><tr><td>All Clear</td><td>+10</td></tr></table>`,
-      `<h5>DEFENSE &amp; SUPERS</h5><p>Incoming garbage waits on the meter beside your well. Orange is still on its way. Red will rise on your next piece. Attack back to cancel it out.</p><p>Clearing lines fills your <b>Super</b> bar. When it says SUPER READY, fire your fighter's special move.</p><p>Nong's <b>Shadow Slam</b> erases incoming garbage and hits for 4. Nang's <b>Emerald Burst</b> blows away your bottom 4 rows and hits for 2.</p>`,
+      `<h5>DEFENSE &amp; SUPERS</h5><p>Incoming garbage waits on the meter beside your well. Orange is still on its way. Red will rise on your next piece. Attack back to cancel it out.</p><p>Clearing lines fills your <b>Super</b> bar. When it says SUPER READY, fire your fighter's special move.</p><p>Nong's <b>Shadow Slam</b> erases incoming garbage and hits for 4. Nang's <b>Emerald Burst</b> blows away your bottom 4 rows and hits for 2. Stucchi's <b>Arya Attack!</b> sends his husky Arya lunging to cancel 3 incoming, clear 2 rows &amp; hit for 3.</p>`,
     ],
   },
   {

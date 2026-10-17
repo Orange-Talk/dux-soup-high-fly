@@ -30,7 +30,14 @@ export const CHARS: Record<CharId, CharInfo> = {
     superName: 'EMERALD BURST', superDesc: 'Blasts away the bottom 4 rows of your stack, then hits for 2.',
     stats: { power: 3, defense: 5, speed: 4 },
   },
-  // Future secret character slot: add entry here with `secret: true` and register art in assets.ts
+  stucchi: {
+    id: 'stucchi', name: 'STUCCHI', title: 'The Italian & Arya',
+    tagline: 'Cool under pressure. His loyal white husky Arya pounces on command.',
+    color: '#ff8a3d', colorAlt: '#3b9eff', glow: 'rgba(255,138,61,', glowAlt: 'rgba(59,158,255,',
+    style: 'pack', styleName: 'Husky Tracks', styleDesc: 'Sends alternating two-step garbage rows to trip up your rival.',
+    superName: 'ARYA ATTACK!', superDesc: 'Arya lunges! Cancels up to 3 incoming lines, clears 2 bottom rows & hits for 3.',
+    stats: { power: 4, defense: 4, speed: 4 },
+  },
 };
 
 export function isCharUnlocked(id: CharId): boolean {
