@@ -66,7 +66,7 @@ document.addEventListener('touchmove', (e) => {
 type ScreenId = 'loading' | 'title' | 'menu' | 'cpu' | 'block' | 'select' | 'vs' | 'battle' | 'pause' | 'results' | 'settings' | 'howto' | 'online' | 'touchcfg';
 let screen: ScreenId = 'loading';
 const handlers: Partial<Record<ScreenId, (e: NavEvent) => void>> = {};
-const BACKABLE: ScreenId[] = ['cpu', 'select', 'howto', 'online'];
+const BACKABLE: ScreenId[] = ['block', 'cpu', 'select', 'howto', 'online'];
 $('#backbtn').addEventListener('click', () => { const h = handlers[screen]; if (h) h({ src: 'mouse', a: 'back' }); });
 function show(id: ScreenId, keepBattle = false) {
   document.querySelectorAll('.screen').forEach((el) => el.classList.remove('on'));
@@ -75,6 +75,7 @@ function show(id: ScreenId, keepBattle = false) {
   screen = id;
   $('#pausebtn').classList.toggle('on', id === 'battle' && !!battle);
   $('#backbtn').classList.toggle('on', BACKABLE.includes(id));
+  stage.classList.toggle('solo', !!battle && !isBlock() && (battle as any).solo === true);
   updateTouch();
 }
 let toastT: any;
@@ -199,22 +200,20 @@ function goMenu() {
   if (pendingJoin) { const c = pendingJoin; pendingJoin = ''; mode = 'online'; show('online'); standaloneJoin(c); }
 }
 function renderRival() {
-  const r = record.versus;
-  const a = r.nong || 0, b = r.nang || 0;
-  const lead = a === b ? (a ? 'Dead even. Settle it.' : 'No matches yet. Who draws first blood?') : (a > b ? 'NONG' : 'NANG') + ' leads by ' + Math.abs(a - b);
-  $('#rival').innerHTML = `<h4>HOUSE RIVALRY · LOCAL VERSUS</h4>
-    <div class="row"><span class="nm" style="color:${CHARS.nong.color}">NONG</span><span class="sc">${a}</span><span class="sep">–</span><span class="sc">${b}</span><span class="nm" style="color:${CHARS.nang.color}">NANG</span></div>
-    <div class="lead">${lead}</div>`;
+  const on = record.online || { win: 0, loss: 0 };
+  const cpuW = Object.values(record.cpu || {}).reduce((n, r: any) => n + (r.w || 0), 0);
+  const cell = (k: string, v: string | number, c = '#fff') => `<div class="rc"><small>${k}</small><b style="color:${c}">${v}</b></div>`;
+  $('#rival').innerHTML = `<h4>YOUR RECORDS</h4>
+    <div class="rgrid">${cell('BLOCK CLASH BEST', record.fallBest || 0, '#5fe3ff')}${cell('BLOCK PUZZLE BEST', record.blockBest || 0, '#ffcf4a')}${cell('ONLINE W–L', (on.win || 0) + '–' + (on.loss || 0), '#ff7a45')}${cell('CPU WINS', cpuW)}</div>`;
 }
 function buildMainMenu() {
   mainMenu = new Menu($('#mainmenu'), [
-    { t: 'VERSUS', s: 'Two players on this device', act: () => { gameType = 'fall'; mode = 'versus'; goSelect(); } },
-    { t: 'VS CPU', s: 'Practice against the computer', act: () => { gameType = 'fall'; mode = 'cpu'; goCpu(); } },
-    { t: 'ONLINE', s: 'Each of you on your own device', act: () => { gameType = 'fall'; mode = 'online'; goOnline(); } },
-    { t: 'BLOCK PUZZLE', s: 'Open grid · endless or duel', act: () => goBlock() },
+    { t: 'BLOCK CLASH', s: 'Falling blocks · every clear punches your rival', act: () => goModes('fall') },
+    { t: 'BLOCK PUZZLE', s: 'Open grid · drag pieces, fill rows and columns', act: () => goModes('block') },
     { t: 'HOW TO PLAY', s: 'Controls, attacks and supers', act: () => goHowto() },
     { t: 'SETTINGS', s: 'Sound, handling and rules', act: () => goSettings('menu') },
   ]);
+  mainMenu.els[1].classList.add('gap-after');
 }
 handlers.menu = (e) => { if (!mainMenu.nav(e) && e.a === 'back') { audio.play('menuBack'); goTitle(); } };
 
@@ -242,40 +241,53 @@ handlers.cpu = (e) => {
   if (e.a === 'left' || e.a === 'up') { cpuIdx = (cpuIdx + 3) % 4; paintCpu(); audio.play('menuMove'); }
   else if (e.a === 'right' || e.a === 'down') { cpuIdx = (cpuIdx + 1) % 4; paintCpu(); audio.play('menuMove'); }
   else if (e.a === 'confirm') pickCpu();
-  else if (e.a === 'back') { audio.play('menuBack'); if (isBlock()) goBlock(); else goMenu(); }
+  else if (e.a === 'back') { audio.play('menuBack'); goModes(); }
 };
 
-// ---------------------------------------------------------------- block puzzle menu
-const BLOCK_MODES: { id: Mode; t: string; d: string; c: string }[] = [
-  { id: 'endless', t: 'ENDLESS', d: 'No timer, no rival. Place pieces, clear lines and see how far you can go.', c: '#ffcf4a' },
-  { id: 'cpu', t: 'VS CPU', d: 'Duel the computer. Every clear hurls stones onto its grid.', c: '#2fd9ff' },
-  { id: 'versus', t: 'VERSUS', d: 'Two players, one keyboard or controllers. Move a cursor and drop pieces.', c: '#3ee6a0' },
-  { id: 'online', t: 'ONLINE', d: 'Each of you on your own phone or computer. Same link, room codes.', c: '#ff7a45' },
+// ---------------------------------------------------------------- game mode menu (per game)
+interface ModeCard { id: Mode; t: string; tag: string; d: Record<'fall' | 'block', string>; c: string; }
+const MODES: ModeCard[] = [
+  { id: 'endless', t: 'ENDLESS', tag: 'SOLO', c: '#ffcf4a', d: {
+    fall: 'Just you and the well. Pieces speed up every 10 lines. How long can you last?',
+    block: 'No timer, no rival. Place pieces, clear lines and see how far you can go.',
+  } },
+  { id: 'cpu', t: 'VS CPU', tag: 'DUEL', c: '#2fd9ff', d: {
+    fall: 'Fight the computer. Clear lines to dump garbage on its side. Four levels.',
+    block: 'Duel the computer. Every clear hurls stones onto its grid. Four levels.',
+  } },
+  { id: 'online', t: 'ONLINE', tag: 'DUEL', c: '#ff7a45', d: {
+    fall: 'Each of you on your own phone or computer. Share a link or a room code.',
+    block: 'Each of you on your own phone or computer. Share a link or a room code.',
+  } },
 ];
-let blockIdx = 0;
-function goBlock() {
-  gameType = 'block';
-  const best = record.blockBest || 0;
+let modeIdx = 0;
+function goModes(gt: 'fall' | 'block' = gameType) {
+  if (gt !== gameType) modeIdx = 0;
+  gameType = gt;
+  const best = (gt === 'block' ? record.blockBest : record.fallBest) || 0;
+  $('#modetitle').innerHTML = gt === 'block'
+    ? 'BLOCK PUZZLE<small>DRAG PIECES ANYWHERE · FILL A ROW OR COLUMN TO CLEAR IT</small>'
+    : 'BLOCK CLASH<small>FALLING BLOCKS · CLEAR LINES TO HIT YOUR RIVAL</small>';
   const root = $('#blockcards');
-  root.innerHTML = BLOCK_MODES.map((d, i) => `<button class="card" data-i="${i}" style="--c:${d.c}"><div class="lv">${d.id === 'endless' ? 'SOLO' : 'DUEL'}</div><div class="t" style="color:${d.c}">${d.t}</div><p>${d.d}</p>${d.id === 'endless' && best ? `<div class="pips" style="font:600 14px var(--fb);color:var(--gold)">BEST ${best}</div>` : ''}</button>`).join('');
+  root.innerHTML = MODES.map((d, i) => `<button class="card" data-i="${i}" style="--c:${d.c}"><div class="lv">${d.tag}</div><div class="t" style="color:${d.c}">${d.t}</div><p>${d.d[gt]}</p>${d.id === 'endless' && best ? `<div class="pips best">BEST ${best}</div>` : ''}</button>`).join('');
   root.querySelectorAll('.card').forEach((el) => {
-    el.addEventListener('pointerenter', () => { blockIdx = +(el as HTMLElement).dataset.i!; paintBlock(); });
-    el.addEventListener('click', () => { blockIdx = +(el as HTMLElement).dataset.i!; pickBlock(); });
+    el.addEventListener('pointerenter', () => { modeIdx = +(el as HTMLElement).dataset.i!; paintModes(); });
+    el.addEventListener('click', () => { modeIdx = +(el as HTMLElement).dataset.i!; pickMode(); });
   });
-  paintBlock();
+  paintModes();
   show('block');
 }
-function paintBlock() { $('#blockcards').querySelectorAll('.card').forEach((el, i) => el.classList.toggle('sel', i === blockIdx)); }
-function pickBlock() {
+function paintModes() { $('#blockcards').querySelectorAll('.card').forEach((el, i) => el.classList.toggle('sel', i === modeIdx)); }
+function pickMode() {
   audio.play('menuSelect');
-  gameType = 'block';
-  mode = BLOCK_MODES[blockIdx].id;
+  mode = MODES[modeIdx].id;
   if (mode === 'cpu') goCpu(); else if (mode === 'online') goOnline(); else goSelect();
 }
 handlers.block = (e) => {
-  if (e.a === 'left' || e.a === 'up') { blockIdx = (blockIdx + 3) % 4; paintBlock(); audio.play('menuMove'); }
-  else if (e.a === 'right' || e.a === 'down') { blockIdx = (blockIdx + 1) % 4; paintBlock(); audio.play('menuMove'); }
-  else if (e.a === 'confirm') pickBlock();
+  const n = MODES.length;
+  if (e.a === 'left' || e.a === 'up') { modeIdx = (modeIdx + n - 1) % n; paintModes(); audio.play('menuMove'); }
+  else if (e.a === 'right' || e.a === 'down') { modeIdx = (modeIdx + 1) % n; paintModes(); audio.play('menuMove'); }
+  else if (e.a === 'confirm') pickMode();
   else if (e.a === 'back') { audio.play('menuBack'); goMenu(); }
 };
 
@@ -325,9 +337,9 @@ function goSelect() {
       s.cur = idx; paintSelect(); lockSlot(si as 0 | 1);
     });
   });
-  $('#selsub').textContent = (isBlock() ? 'BLOCK PUZZLE · ' : '') + (mode === 'versus' ? 'LOCAL VERSUS' : mode === 'cpu' ? 'VS CPU · ' + DIFFS.find((d) => d.id === cpuDiff)!.t : mode === 'endless' ? 'ENDLESS' : 'ONLINE DUEL');
+  $('#selsub').textContent = (isBlock() ? 'BLOCK PUZZLE · ' : 'BLOCK CLASH · ') + (mode === 'versus' ? 'LOCAL VERSUS' : mode === 'cpu' ? 'VS CPU · ' + DIFFS.find((d) => d.id === cpuDiff)!.t : mode === 'endless' ? 'ENDLESS' : 'ONLINE DUEL');
   if (mode === 'online') net.pub({ gt: gameType });
-  $('#selhint').innerHTML = mode === 'versus'
+  $('#selhint').innerHTML = isTouch ? 'Tap a fighter to pick' : mode === 'versus'
     ? 'P1 <b>A</b><b>D</b> move · <b>Space</b> pick &nbsp;·&nbsp; P2 <b>←</b><b>→</b> move · <b>Enter</b> pick &nbsp;·&nbsp; controllers: <b>Ⓐ</b> join &nbsp;·&nbsp; <b>Esc</b> back'
     : '<b>←</b><b>→</b> move · <b>Enter</b> or <b>Space</b> pick · <b>Esc</b> back';
   paintSelect();
@@ -428,7 +440,7 @@ handlers.select = (e) => {
   if (selectDone) return;
   if (e.src === 'mouse' && e.a === 'back') {
     audio.play('menuBack');
-    if (mode === 'online') { net.leaveDuel(); goMenu(); } else if (mode === 'cpu') goCpu(); else if (isBlock()) goBlock(); else goMenu();
+    if (mode === 'online') { net.leaveDuel(); goModes(); } else if (mode === 'cpu') goCpu(); else goModes();
     return;
   }
   if (mode === 'versus') {
@@ -442,7 +454,7 @@ handlers.select = (e) => {
         if (target >= 0) { slots[target].src = e.src; audio.play('join'); paintSelect(); }
         return;
       }
-      if (e.a === 'back') { if (!slots[0].src && !slots[1].src) { audio.play('menuBack'); goMenu(); } }
+      if (e.a === 'back') { if (!slots[0].src && !slots[1].src) { audio.play('menuBack'); goModes(); } }
       return;
     }
     navSlot(si as 0 | 1, e);
@@ -468,9 +480,9 @@ function navSlot(i: 0 | 1, e: NavEvent) {
   else if (e.a === 'confirm') lockSlot(i);
   else if (e.a === 'back') {
     audio.play('menuBack');
-    if (mode === 'versus') { s.src = null; paintSelect(); if (!slots[0].src && !slots[1].src && isBlock()) goBlock(); }
-    else if (mode === 'online') { net.leaveDuel(); goMenu(); }
-    else if (mode === 'endless') goBlock();
+    if (mode === 'versus') { s.src = null; paintSelect(); if (!slots[0].src && !slots[1].src) goModes(); }
+    else if (mode === 'online') { net.leaveDuel(); goModes(); }
+    else if (mode === 'endless') goModes();
     else goCpu();
   }
 }
@@ -506,27 +518,38 @@ function startBattle(a: SideCfg, b: SideCfg, seed = (Math.random() * 2 ** 31) >>
 
 function startEndless(a: SideCfg) {
   lastCfg = [a, a];
-  const bb = new BlockBattle(a, null, 1);
-  bb.best = record.blockBest || 0;
-  bb.onSoloOver = (score, stats) => showEndlessOver(score, stats);
-  battle = bb as unknown as Battle;
+  mode = 'endless';
+  if (isBlock()) {
+    const bb = new BlockBattle(a, null, 1);
+    bb.best = record.blockBest || 0;
+    bb.onSoloOver = (score, stats) => showEndlessOver(score, stats);
+    battle = bb as unknown as Battle;
+  } else {
+    const fb = new Battle(a, null, 1);
+    fb.best = record.fallBest || 0;
+    fb.onSoloOver = (score, stats) => showEndlessOver(score, stats);
+    battle = fb;
+  }
   bgMode = 'battle';
-  bb.beginRound((Math.random() * 2 ** 31) >>> 0, 1);
+  battle.beginRound((Math.random() * 2 ** 31) >>> 0, 1);
   show('battle');
 }
 function showEndlessOver(score: number, stats: any) {
-  const prev = record.blockBest || 0;
+  const blk = isBlock();
+  const prev = (blk ? record.blockBest : record.fallBest) || 0;
   const nb = score > prev;
-  if (nb) record.blockBest = score;
-  record.blockGames = (record.blockGames || 0) + 1;
+  if (blk) { if (nb) record.blockBest = score; record.blockGames = (record.blockGames || 0) + 1; }
+  else { if (nb) record.fallBest = score; record.fallGames = (record.fallGames || 0) + 1; record.quads += stats.quads || 0; }
+  record.bestCombo = Math.max(record.bestCombo, stats.maxCombo || 0);
   save();
+  const fourth = blk ? `<div><small>PIECES</small>${stats.pieces}</div>` : `<div><small>QUADS</small>${stats.quads || 0}</div>`;
   const box = $('#resbox');
   box.style.setProperty('--c', '#ffcf4a');
-  box.innerHTML = `<div class="endless"><div class="win"><div class="k">ENDLESS · FINAL SCORE</div></div><div class="big">${score}</div>${nb && prev ? '<div class="nb">NEW BEST!</div>' : nb ? '<div class="nb">FIRST SCORE ON THE BOARD</div>' : ''}
-    <div class="row2"><div><small>BEST</small>${Math.max(prev, score)}</div><div><small>LINES</small>${stats.lines}</div><div><small>BEST COMBO</small>x${Math.max(1, stats.maxCombo + 1)}</div><div><small>PIECES</small>${stats.pieces}</div></div></div><div class="menu" id="resmenu"></div>`;
+  box.innerHTML = `<div class="endless"><div class="win"><div class="k">${blk ? 'BLOCK PUZZLE' : 'BLOCK CLASH'} · ENDLESS · FINAL SCORE</div></div><div class="big">${score}</div>${nb && prev ? '<div class="nb">NEW BEST!</div>' : nb ? '<div class="nb">FIRST SCORE ON THE BOARD</div>' : ''}
+    <div class="row2"><div><small>BEST</small>${Math.max(prev, score)}</div><div><small>LINES</small>${stats.lines}</div><div><small>BEST COMBO</small>x${Math.max(1, stats.maxCombo + 1)}</div>${fourth}</div></div><div class="menu" id="resmenu"></div>`;
   resMenu = new Menu($('#resmenu'), [
     { t: 'PLAY AGAIN', act: () => { if (lastCfg) startEndless(lastCfg[0]); } },
-    { t: 'BLOCK MENU', act: () => { battle = null; goMenu(); goBlock(); } },
+    { t: 'CHANGE MODE', act: () => { battle = null; goMenu(); goModes(); } },
     { t: 'MAIN MENU', act: () => { battle = null; goMenu(); } },
   ], true);
   if (nb) { audio.play('victory'); for (let i = 0; i < 90; i++) menuFx.spawn({ x: Math.random() * W, y: -20 - Math.random() * 200, vx: (Math.random() - 0.5) * 120, vy: 80 + Math.random() * 160, kind: 'confetti', size: 6, max: 4, g: 60, drag: 0.99, add: false, color: ['#ffcf4a', '#ffffff', '#ff6a3d', '#3ee6a0'][i % 4], vr: (Math.random() - 0.5) * 10 }); }
@@ -604,7 +627,7 @@ function showResults(w: 0 | 1) {
     </tbody></table><div class="menu" id="resmenu"></div>`;
   const items: MItem[] = mode === 'online'
     ? [{ t: 'REMATCH', act: () => onlineRematch() }, { t: 'LEAVE', act: () => { net.leaveDuel(); goMenu(); } }]
-    : [{ t: 'REMATCH', act: () => { if (lastCfg) startBattle(lastCfg[0], lastCfg[1]); } }, { t: 'NEW FIGHTERS', act: () => { battle = null; goSelect(); } }, { t: 'MAIN MENU', act: () => { battle = null; goMenu(); } }];
+    : [{ t: 'REMATCH', act: () => { if (lastCfg) startBattle(lastCfg[0], lastCfg[1]); } }, { t: 'NEW FIGHTERS', act: () => { battle = null; goSelect(); } }, { t: 'CHANGE MODE', act: () => { battle = null; goMenu(); goModes(); } }];
   resMenu = new Menu($('#resmenu'), items, true);
   setTimeout(() => show('results', true), 300);
   // confetti
@@ -667,7 +690,7 @@ let howTab = 0;
 const HOW = [
   {
     t: 'RULES', cols: [
-      `<h5>THE GOAL</h5><p>Clear lines to attack. Every attack drops grey garbage into your rival's well. If their stack spills over the top, they're K.O.</p><p>Win rounds to win the match. Pieces fall faster the longer a round runs.</p>`,
+      `<h5>THE GOAL</h5><p>Clear lines to attack. Every attack drops grey garbage into your rival's well. If their stack spills over the top, they're K.O.</p><p>Win rounds to win the match. Pieces fall faster the longer a round runs.</p><p><b>Endless</b> is a solo run: no rival, no garbage. Pieces speed up every 10 lines and your best score is saved.</p>`,
       `<h5>ATTACKS</h5><table><tr><td>Single</td><td>0</td></tr><tr><td>Double</td><td>1</td></tr><tr><td>Triple</td><td>2</td></tr><tr><td>Quad (4 lines)</td><td>4</td></tr><tr><td>T-Spin Single / Double / Triple</td><td>2 / 4 / 6</td></tr><tr><td>Back-to-back bonus</td><td>+1</td></tr><tr><td>Combo (clears in a row)</td><td>+1 to +5</td></tr><tr><td>All Clear</td><td>+10</td></tr></table>`,
       `<h5>DEFENSE &amp; SUPERS</h5><p>Incoming garbage waits on the meter beside your well. Orange is still on its way. Red will rise on your next piece. Attack back to cancel it out.</p><p>Clearing lines fills your <b>Super</b> bar. When it says SUPER READY, fire your fighter's special move.</p><p>Nong's <b>Shadow Slam</b> erases incoming garbage and hits for 4. Nang's <b>Emerald Burst</b> blows away your bottom 4 rows and hits for 2. Stucchi's <b>Arya Attack!</b> sends his husky Arya lunging to cancel 3 incoming, clear 2 rows &amp; hit for 3.</p>`,
     ],
@@ -675,7 +698,7 @@ const HOW = [
   {
     t: 'CONTROLS', cols: [
       `<h5>PHONE · SWIPE &amp; BUTTONS</h5><table><tr><td>Slide left / right</td><td>Move</td></tr><tr><td>Tap screen</td><td>Rotate</td></tr><tr><td>Flick straight down</td><td>Hard drop</td></tr><tr><td>Hold down</td><td>Soft drop</td></tr><tr><td>Flick up / Tap Hold</td><td>Hold piece</td></tr><tr><td>Tap Super</td><td>Fire Super</td></tr></table><p style="margin-top:8px">Tap <b>SWIPE</b> at the top of a match to switch to <b>BUTTONS</b> mode, or open <b>Pause / Settings → Customize Buttons</b> to drag &amp; resize any button.</p>`,
-      `<h5>KEYBOARD · P1 &amp; P2</h5><table><tr><td>P1 Move / Drop</td><td><kbd>A</kbd><kbd>D</kbd> / <kbd>S</kbd> <kbd>Space</kbd></td></tr><tr><td>P1 Rotate / Hold / Super</td><td><kbd>W</kbd><kbd>Q</kbd> / <kbd>E</kbd> / <kbd>R</kbd></td></tr><tr><td>P2 Move / Drop</td><td><kbd>←</kbd><kbd>→</kbd> / <kbd>↓</kbd> <kbd>Enter</kbd></td></tr><tr><td>P2 Rotate / Hold / Super</td><td><kbd>↑</kbd><kbd>/</kbd> / <kbd>Shift</kbd> / <kbd>.</kbd></td></tr></table><p style="margin-top:8px">Playing solo? Both key sets work, plus <kbd>Z</kbd><kbd>X</kbd> rotate, <kbd>C</kbd> hold, <kbd>V</kbd> super.</p>`,
+      `<h5>KEYBOARD</h5><table><tr><td>Move</td><td><kbd>←</kbd><kbd>→</kbd> or <kbd>A</kbd><kbd>D</kbd></td></tr><tr><td>Soft drop</td><td><kbd>↓</kbd> or <kbd>S</kbd></td></tr><tr><td>Hard drop</td><td><kbd>Space</kbd></td></tr><tr><td>Rotate</td><td><kbd>↑</kbd> <kbd>X</kbd> / <kbd>Z</kbd></td></tr><tr><td>Hold</td><td><kbd>C</kbd> or <kbd>Shift</kbd></td></tr><tr><td>Super</td><td><kbd>V</kbd> or <kbd>R</kbd></td></tr><tr><td>Pause</td><td><kbd>Esc</kbd></td></tr></table>`,
       `<h5>CONTROLLER</h5><table><tr><td>Move / soft drop</td><td>D-pad or stick</td></tr><tr><td>Hard drop</td><td>D-pad ↑</td></tr><tr><td>Rotate right / left</td><td>Ⓐ / Ⓑ</td></tr><tr><td>Hold</td><td>Ⓧ or bumpers</td></tr><tr><td>Super</td><td>Ⓨ</td></tr><tr><td>Pause</td><td>Start</td></tr></table>`,
     ],
   },
@@ -683,7 +706,7 @@ const HOW = [
     t: 'BLOCK PUZZLE', cols: [
       `<h5>THE IDEA</h5><p>An open 8 by 8 grid. You get three pieces at a time. Drag each one anywhere it fits. Fill a whole row or a whole column and it clears.</p><p>Pieces never rotate. When none of your pieces fit anywhere, the run is over.</p>`,
       `<h5>ENDLESS</h5><p>Just you and the grid, chasing your best score. Clearing several lines at once and clearing on back-to-back turns builds big combos.</p><p>Grayed-out pieces in the tray do not fit right now.</p>`,
-      `<h5>DUELS</h5><p>Every clear throws stones onto your rival's grid. Clear on your own turn to block stones headed your way. Fill the Super bar and tap it to unleash your fighter's special.</p><p>Versus on one keyboard: P1 moves with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>, swaps piece with <kbd>Q</kbd>, drops with <kbd>Space</kbd>. P2 uses the arrows, <kbd>/</kbd> and <kbd>Enter</kbd>.</p>`,
+      `<h5>DUELS</h5><p>Every clear throws stones onto your rival's grid. Clear on your own turn to block stones headed your way. Fill the Super bar and tap it to unleash your fighter's special.</p><p>On a computer you can also drag with the mouse.</p>`,
     ],
   },
 ];
@@ -707,11 +730,11 @@ function onlineView(st: string, msg: string, items: MItem[], dots = false) {
 async function goOnline() {
   show('online');
   if (STANDALONE) { standaloneOnlineMenu(); return; }
-  onlineView('CONNECTING', 'Opening the arena doors…', [{ t: 'BACK', act: goMenu }], true);
+  onlineView('CONNECTING', 'Opening the arena doors…', [{ t: 'BACK', act: () => goModes() }], true);
   const ok = await net.connect();
   if (screen !== 'online') return;
   if (!ok) {
-    onlineView('ONLINE IS OFFLINE', 'Online play works when this game is opened inside Claude while you are signed in. You can still play Versus on one device, or try again later.', [{ t: 'BACK', act: goMenu }]);
+    onlineView('ONLINE IS OFFLINE', 'Online play works when this game is opened inside Claude while you are signed in. Try again in a moment, or play Endless or VS CPU for now.', [{ t: 'BACK', act: () => goModes() }]);
     return;
   }
   onlineSearch();
@@ -720,10 +743,10 @@ async function goOnline() {
 function shareLink(code: string) { return location.href.split('#')[0] + '#' + code; }
 function standaloneOnlineMenu() {
   peerNet.search(false);
-  onlineView('PLAY A FRIEND', 'One of you creates a room and sends the link. The other opens it, or picks Join and types the 4-letter code.', [
+  onlineView('PLAY A FRIEND · ' + (isBlock() ? 'BLOCK PUZZLE' : 'BLOCK CLASH'), 'One of you creates a room and sends the link. The other opens it, or picks Join and types the 4-letter code. Whoever creates the room picks the game.', [
     { t: 'CREATE A ROOM', s: 'Get a link to send your rival', act: standaloneHost },
     { t: 'JOIN WITH A CODE', s: 'Type the code you were sent', act: () => standaloneJoinForm() },
-    { t: 'BACK', act: goMenu },
+    { t: 'BACK', act: () => goModes() },
   ]);
 }
 async function standaloneHost() {
@@ -735,7 +758,7 @@ async function standaloneHost() {
   const canShare = typeof (navigator as any).share === 'function';
   onlineView('ROOM ' + code, `Send this link to your rival. It's fine to switch apps to send it. The match starts as soon as they open it.<br><span id="sharelink" style="user-select:text;-webkit-user-select:text;color:var(--gold);font-weight:700">${link}</span>`, [
     { t: canShare ? 'SHARE LINK' : 'COPY LINK', act: () => {
-      if (canShare) { (navigator as any).share({ title: 'Block Clash Duel', text: 'Fight me in Block Clash Duel', url: link }).catch(() => {}); return; }
+      if (canShare) { (navigator as any).share({ title: 'Block Clash Duel', text: 'Fight me in ' + (isBlock() ? 'Block Puzzle' : 'Block Clash'), url: link }).catch(() => {}); return; }
       const done = () => toast('Link copied. Paste it in a text to your rival.');
       const fallback = () => { const r = document.createRange(); const el = $('#sharelink'); r.selectNodeContents(el); const sel = getSelection(); sel?.removeAllRanges(); sel?.addRange(r); toast('Link selected. Copy it and send it.'); };
       try { navigator.clipboard.writeText(link).then(done, fallback); } catch { fallback(); }
@@ -764,7 +787,7 @@ function standaloneJoin(code: string) {
 function standaloneError() {
   const nf = peerNet.error === 'notfound';
   onlineView(nf ? 'ROOM NOT FOUND' : 'CONNECTION TROUBLE', nf ? `Nobody is waiting in room ${peerNet.code}. Ask your rival to create a room and send a fresh link.` : 'Could not reach the matchmaking service. Check your internet connection and try again.', [
-    { t: 'TRY AGAIN', act: standaloneOnlineMenu }, { t: 'BACK', act: goMenu },
+    { t: 'TRY AGAIN', act: standaloneOnlineMenu }, { t: 'BACK', act: () => goModes() },
   ]);
 }
 function onlineSearch() {
@@ -774,7 +797,7 @@ function onlineSearch() {
 function paintOnlineSearch() {
   if (screen !== 'online' || STANDALONE) return;
   const others = net.lobbyCount;
-  onlineView('FINDING YOUR RIVAL', `Open this same game on the other device and choose <b>Online</b>. You'll be paired automatically.<br><span style="color:var(--muted)">${others ? others + ' other ' + (others === 1 ? 'player is' : 'players are') + ' here right now' : 'Nobody else is here yet'}</span>`, [{ t: 'CANCEL', act: () => { net.search(false, 'nong'); goMenu(); } }], true);
+  onlineView('FINDING YOUR RIVAL', `Open this same game on the other device and choose <b>Online</b>. You'll be paired automatically.<br><span style="color:var(--muted)">${others ? others + ' other ' + (others === 1 ? 'player is' : 'players are') + ' here right now' : 'Nobody else is here yet'}</span>`, [{ t: 'CANCEL', act: () => { net.search(false, 'nong'); goModes(); } }], true);
 }
 net.onStatus = (s: string) => {
   if (s === 'searching' && screen === 'online') paintOnlineSearch();
@@ -782,7 +805,7 @@ net.onStatus = (s: string) => {
   if (s === 'unavailable' && STANDALONE && screen === 'online') standaloneError();
   if (s === 'lost') { toast('Your opponent left the match'); if (screen !== 'menu' && screen !== 'title') goMenu(); }
 };
-handlers.online = (e) => { if (onlMenu && !onlMenu.nav(e) && e.a === 'back') { audio.play('menuBack'); net.search(false, 'nong'); goMenu(); } };
+handlers.online = (e) => { if (onlMenu && !onlMenu.nav(e) && e.a === 'back') { audio.play('menuBack'); net.search(false, 'nong'); goModes(); } };
 
 let onlineMatch = 1;
 let onlineStarted = false;
@@ -797,7 +820,7 @@ net.onDuel = (p: DuelPresence) => {
   // character select updates
   if (screen === 'select' && mode === 'online') {
     const prev = onlineOppChar;
-    if (net.info && !net.info.host && p.gt && p.gt !== gameType) { gameType = p.gt; $('#selsub').textContent = (isBlock() ? 'BLOCK PUZZLE · ' : '') + 'ONLINE DUEL'; }
+    if (net.info && !net.info.host && p.gt && p.gt !== gameType) { gameType = p.gt; $('#selsub').textContent = (isBlock() ? 'BLOCK PUZZLE · ' : 'BLOCK CLASH · ') + 'ONLINE DUEL'; }
     onlineOppChar = p.ch || null;
     onlineOppReady = !!p.rdy && !!p.ch;
     if (p.ch) { slots[1].char = p.ch; slots[1].cur = Math.max(0, getSelectTiles().indexOf(p.ch)); }
@@ -1380,7 +1403,7 @@ async function boot() {
   }
   goTitle();
   // hidden test hooks for automated play-testing and secret character unlocking
-  (window as any).__bc = { bestMove, startEndless, get battle() { return battle; }, get screen() { return screen; }, unlockSecretChar, openTouchCustomizer, autoPlay: (d: Difficulty = 'normal') => { const s: any = battle && battle.sides[0]; if (s && isBlock()) { s.cfg.kind = 'cpu'; s.cpu = new BlockCpu(d); return; } if (s) { s.cfg.kind = 'cpu'; s.cpu = new CpuController(d); (battle as any).autoDiff = d; } }, blockDemo: (d: Difficulty = 'normal', d2: Difficulty = d) => { gameType = 'block'; mode = 'cpu'; startBattle({ kind: 'cpu', diff: d2, char: 'stucchi', alt: false, label: 'CPU A' }, { kind: 'cpu', diff: d, char: 'nang', alt: false, label: 'CPU B' }); }, startCpuDemo: (d: Difficulty = 'hard', d2: Difficulty = d, c1: CharId = 'nong', c2: CharId = 'nang') => { gameType = 'fall'; mode = 'cpu'; const a: SideCfg = { kind: 'cpu', diff: d2, char: c1, alt: false, label: 'CPU A' }; const b: SideCfg = { kind: 'cpu', diff: d, char: c2, alt: c1 === c2, label: 'CPU B' }; startBattle(a, b); }, net };
+  (window as any).__bc = { bestMove, startEndless, goModes, setGame: (g: "fall" | "block") => { gameType = g; }, get battle() { return battle; }, get screen() { return screen; }, unlockSecretChar, openTouchCustomizer, autoPlay: (d: Difficulty = 'normal') => { const s: any = battle && battle.sides[0]; if (s && isBlock()) { s.cfg.kind = 'cpu'; s.cpu = new BlockCpu(d); return; } if (s) { s.cfg.kind = 'cpu'; s.cpu = new CpuController(d); (battle as any).autoDiff = d; } }, blockDemo: (d: Difficulty = 'normal', d2: Difficulty = d) => { gameType = 'block'; mode = 'cpu'; startBattle({ kind: 'cpu', diff: d2, char: 'stucchi', alt: false, label: 'CPU A' }, { kind: 'cpu', diff: d, char: 'nang', alt: false, label: 'CPU B' }); }, startCpuDemo: (d: Difficulty = 'hard', d2: Difficulty = d, c1: CharId = 'nong', c2: CharId = 'nang') => { gameType = 'fall'; mode = 'cpu'; const a: SideCfg = { kind: 'cpu', diff: d2, char: c1, alt: false, label: 'CPU A' }; const b: SideCfg = { kind: 'cpu', diff: d, char: c2, alt: c1 === c2, label: 'CPU B' }; startBattle(a, b); }, net };
 }
 requestAnimationFrame(frame);
 boot();

@@ -79,6 +79,8 @@ class Side {
   }
 }
 
+const SOLO_ZOOM = 1.15;
+
 export type Phase = 'intro' | 'fight' | 'play' | 'ko' | 'result' | 'waiting' | 'done';
 
 export class Battle {
@@ -101,9 +103,19 @@ export class Battle {
   online = false;
   matchOver = false;
   koOrder: (0 | 1)[] = [];
+  /** endless marathon: one board, no rival */
+  solo = false;
+  best = 0;
+  onSoloOver: ((score: number, stats: Stats) => void) | null = null;
+  private soloLevel = 1;
+  private newBestShown = false;
 
-  constructor(a: SideCfg, b: SideCfg, winsNeeded: number) {
-    this.sides = [new Side(a, 0), new Side(b, 1)];
+  constructor(a: SideCfg, b: SideCfg | null, winsNeeded: number) {
+    this.solo = !b;
+    BOARD_X[0] = this.solo ? 505 : 116;
+    const dummy: SideCfg = { kind: 'remote', char: a.char === 'nong' ? 'nang' : 'nong', alt: false, label: '' };
+    this.sides = [new Side(a, 0), new Side(b || dummy, 1)];
+    if (this.solo) { this.sides[0].fighter.homeX = 262; this.sides[0].fighter.x = 262; }
     this.winsNeeded = winsNeeded;
     for (const s of this.sides) s.fighter.onImpact = (k) => this.impact(s, k);
     this.fx.shakeOn = settings.shake;
@@ -111,6 +123,80 @@ export class Battle {
   }
 
   other(s: Side): Side { return this.sides[1 - s.idx]; }
+  /** the sides actually on stage */
+  get live(): Side[] { return this.solo ? [this.sides[0]] : this.sides; }
+
+  private levelUp(lvl: number) {
+    const s = this.sides[0];
+    audio.play('superReady');
+    this.callout(s, 'LEVEL ' + lvl, '#ffcf4a', 34, 'FASTER!', true);
+    s.bfx.superFlash = 0.5;
+    if (s.fighter.state === 'idle') s.fighter.set('victory');
+    setTimeout(() => { if (s.fighter.state === 'victory' && this.phase === 'play') s.fighter.set('idle'); }, 900);
+  }
+
+  private drawSoloHud(ctx: CanvasRenderingContext2D) {
+    const s = this.sides[0];
+    const b = s.board;
+    const score = b ? b.stats.score : 0, lines = b ? b.stats.lines : 0;
+    const lvl = b ? b.level : 1;
+    if (b && this.best > 0 && score > this.best && !this.newBestShown) {
+      this.newBestShown = true;
+      this.callout(s, 'NEW BEST!', '#ffcf4a', 36, undefined, true);
+      audio.play('b2b');
+    }
+    // portrait medallion + name (top left)
+    const mx = 62, my = 58;
+    ctx.save();
+    ctx.beginPath(); ctx.arc(mx, my, 38, 0, 6.283);
+    ctx.fillStyle = 'rgba(8,8,24,0.9)'; ctx.fill();
+    ctx.lineWidth = 3; ctx.strokeStyle = s.color; ctx.stroke();
+    ctx.clip();
+    const ch = art.chars[s.cfg.char];
+    const p = s.cfg.alt ? ch.portraitAlt : ch.portrait;
+    const pw = 150, ph = (p.height / p.width) * pw;
+    ctx.drawImage(p, mx - pw / 2, my - 32, pw, ph);
+    ctx.restore();
+    ctx.save();
+    ctx.textBaseline = 'alphabetic'; ctx.textAlign = 'left';
+    ctx.lineWidth = 6; ctx.strokeStyle = 'rgba(5,5,18,0.85)'; ctx.lineJoin = 'round';
+    ctx.font = `30px ${FONT_D}`;
+    ctx.strokeText(CHARS[s.cfg.char].name, 110, 56); ctx.fillStyle = '#fff'; ctx.fillText(CHARS[s.cfg.char].name, 110, 56);
+    ctx.font = `700 13px ${FONT_B}`; ctx.fillStyle = s.color;
+    ctx.strokeText('ENDLESS RUN', 110, 78); ctx.fillText('ENDLESS RUN', 110, 78);
+    ctx.restore();
+    // score panel (right)
+    const px = 968, py = 150, pw2 = 250;
+    ctx.save();
+    rrect(ctx, px, py, pw2, 330, 16);
+    ctx.fillStyle = 'rgba(8,8,26,0.82)'; ctx.fill();
+    ctx.strokeStyle = 'rgba(255,255,255,0.15)'; ctx.lineWidth = 1.5; ctx.stroke();
+    ctx.textAlign = 'center'; ctx.textBaseline = 'alphabetic';
+    const cx = px + pw2 / 2;
+    ctx.font = `600 13px ${FONT_B}`; ctx.fillStyle = 'rgba(220,220,255,0.7)';
+    ctx.fillText('SCORE', cx, py + 34);
+    ctx.font = `${score >= 100000 ? 40 : 48}px ${FONT_D}`; ctx.fillStyle = '#fff';
+    ctx.fillText(String(score), cx, py + 86);
+    const beat = this.best > 0 && score > this.best;
+    ctx.font = `600 13px ${FONT_B}`; ctx.fillStyle = 'rgba(220,220,255,0.7)';
+    ctx.fillText('BEST', cx, py + 126);
+    ctx.font = `28px ${FONT_D}`; ctx.fillStyle = beat ? '#ffcf4a' : '#e8e6ff';
+    ctx.fillText(String(Math.max(this.best, beat ? score : 0)), cx, py + 158);
+    // level + progress to the next speed-up
+    ctx.font = `600 13px ${FONT_B}`; ctx.fillStyle = 'rgba(220,220,255,0.7)';
+    ctx.fillText('LEVEL', cx, py + 200);
+    ctx.font = `34px ${FONT_D}`; ctx.fillStyle = '#ffcf4a';
+    ctx.fillText(String(lvl), cx, py + 238);
+    const into = lvl >= 15 ? 10 : lines % 10;
+    rrect(ctx, px + 28, py + 256, pw2 - 56, 12, 6); ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fill();
+    if (into > 0) { rrect(ctx, px + 30, py + 258, (pw2 - 60) * (into / 10), 8, 4); ctx.fillStyle = '#ffcf4a'; ctx.fill(); }
+    ctx.font = `600 12px ${FONT_B}`; ctx.fillStyle = 'rgba(220,220,255,0.6)';
+    ctx.fillText(lvl >= 15 ? 'TOP SPEED' : (10 - into) + ' LINES TO SPEED UP', cx, py + 292);
+    const tt = Math.floor(this.roundTime);
+    ctx.font = `600 12px ${FONT_B}`;
+    ctx.fillText(lines + ' LINES  ·  ' + Math.floor(tt / 60) + ':' + String(tt % 60).padStart(2, '0'), cx, py + 314);
+    ctx.restore();
+  }
 
   // ---------------- round flow
   beginRound(seed: number, round?: number) {
@@ -121,6 +207,7 @@ export class Battle {
     this.cutin = null;
     this.koOrder = [];
     this.roundWinner = null;
+    this.soloLevel = 1; this.newBestShown = false;
     const isTouchDev = typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
     for (const s of this.sides) {
       s.pending = null; s.koShown = false;
@@ -329,6 +416,16 @@ export class Battle {
     const o = this.other(s);
     if (!p) return;
     const [sx, sy] = s.fighter.strikePoint;
+    if (this.solo) {
+      // nobody to hit: a flashy strike into the air
+      const big = k === 'heavy' || k === 'super';
+      this.fx.burst(sx, sy, big ? 34 : 14, s.color, big ? 460 : 260, 'spark', 3.5, 0.45);
+      this.fx.burst(sx, sy, big ? 8 : 3, '#ffffff', 180, 'star', 9, 0.35);
+      this.burstImg.push({ x: sx, y: sy, t: 0, s: big ? 0.9 : 0.45 });
+      audio.play(big ? 'heavyhit' : 'hit');
+      if (big) this.fx.shake(0.25);
+      return;
+    }
     if (k === 'heavy' || k === 'super') {
       // projectile
       const [tx, ty] = o.fighter.bodyPoint;
@@ -481,6 +578,14 @@ export class Battle {
         if (this.phaseT > 0.9) { this.phase = 'play'; this.phaseT = 0; }
         break;
       case 'ko':
+        if (this.solo) {
+          if (this.phaseT > 2.2) {
+            this.phase = 'done';
+            const b = this.sides[0].board!;
+            this.onSoloOver?.(b.stats.score, { ...b.stats });
+          }
+          break;
+        }
         if (!this.hooks.external && this.phaseT > 2.4 && this.roundWinner === null) {
           const losers = this.koOrder;
           const winner: 0 | 1 | -1 = losers.length >= 2 ? -1 : losers[0] === 0 ? 1 : 0;
@@ -506,7 +611,8 @@ export class Battle {
       while (this.acc >= step && n < 12) {
         this.acc -= step; n++;
         if (this.phase === 'play' || this.phase === 'fight') this.roundTime += step / 1000;
-        const lvl = Math.min(15, 1 + Math.floor(this.roundTime / settings.speedUpEvery));
+        const lvl = this.solo ? Math.min(15, 1 + Math.floor((this.sides[0].board ? this.sides[0].board.stats.lines : 0) / 10)) : Math.min(15, 1 + Math.floor(this.roundTime / settings.speedUpEvery));
+        if (this.solo && lvl > this.soloLevel) { this.soloLevel = lvl; this.levelUp(lvl); }
         for (const s of this.sides) {
           if (!s.board) continue;
           s.board.level = lvl;
@@ -544,16 +650,24 @@ export class Battle {
     ctx.save();
     ctx.translate(shx, shy);
     drawBg(ctx, this.time, 0.42);
-    // stage spotlight
-    const sp = ctx.createRadialGradient(640, 610, 20, 640, 560, 330);
-    sp.addColorStop(0, 'rgba(255,230,190,0.16)'); sp.addColorStop(1, 'rgba(255,230,190,0)');
-    ctx.fillStyle = sp; ctx.fillRect(400, 300, 480, 420);
+    if (this.solo) {
+      // one board: zoom the play area in a little so it reads well on a phone
+      ctx.translate(640, 52); ctx.scale(SOLO_ZOOM, SOLO_ZOOM); ctx.translate(-640, -BOARD_Y);
+      const sp = ctx.createRadialGradient(262, 610, 20, 262, 560, 260);
+      sp.addColorStop(0, 'rgba(255,230,190,0.16)'); sp.addColorStop(1, 'rgba(255,230,190,0)');
+      ctx.fillStyle = sp; ctx.fillRect(0, 300, 520, 420);
+    } else {
+      // stage spotlight
+      const sp = ctx.createRadialGradient(640, 610, 20, 640, 560, 330);
+      sp.addColorStop(0, 'rgba(255,230,190,0.16)'); sp.addColorStop(1, 'rgba(255,230,190,0)');
+      ctx.fillStyle = sp; ctx.fillRect(400, 300, 480, 420);
+    }
 
-    for (const s of this.sides) {
+    for (const s of this.live) {
       drawBoard(ctx, s.view(), s.bfx, { side: s.idx, color: s.color, time: this.time, ghost: settings.ghost, name: s.cfg.label, showDanger: true });
     }
     // fighters (draw the attacker on top)
-    const order = [...this.sides].sort((a, b) => (a.fighter.state === 'idle' ? 0 : 1) - (b.fighter.state === 'idle' ? 0 : 1));
+    const order = [...this.live].sort((a, b) => (a.fighter.state === 'idle' ? 0 : 1) - (b.fighter.state === 'idle' ? 0 : 1));
     for (const s of order) s.fighter.draw(ctx, this.time, s.color);
     // impact bursts
     for (const b of this.burstImg) {
@@ -580,7 +694,7 @@ export class Battle {
     this.fx.draw(ctx, FONT_D);
     ctx.restore();
 
-    this.drawHud(ctx);
+    if (this.solo) this.drawSoloHud(ctx); else this.drawHud(ctx);
     if (this.cutin) this.drawCutin(ctx);
     this.drawBanner(ctx);
     if (this.fx.flash > 0.01) {
@@ -716,9 +830,9 @@ export class Battle {
       if (sub) { ctx.font = `600 20px ${FONT_B}`; ctx.fillStyle = '#e8e8ff'; ctx.fillText(sub, 0, size * 0.75); }
       ctx.restore();
     };
-    if (ph === 'intro' && t > 0.5) slam(this.isFinalRound ? 'FINAL ROUND' : 'ROUND ' + this.round, '#ffe066', t - 0.5, 76);
-    if (ph === 'fight') slam('FIGHT!', '#ff5a3c', t, 104);
-    if (ph === 'ko' && t < 2.4) slam('K.O.', '#ff3355', t, 130);
+    if (ph === 'intro' && t > 0.5) slam(this.solo ? 'ENDLESS' : this.isFinalRound ? 'FINAL ROUND' : 'ROUND ' + this.round, '#ffe066', t - 0.5, 76, this.solo && this.best ? 'BEST ' + this.best : undefined);
+    if (ph === 'fight') slam(this.solo ? 'GO!' : 'FIGHT!', '#ff5a3c', t, 104);
+    if (ph === 'ko' && t < 2.4) slam(this.solo ? 'GAME OVER' : 'K.O.', '#ff3355', t, this.solo ? 100 : 130);
     if (ph === 'result') {
       if (this.roundWinner === -1) slam('DRAW', '#ffffff', t, 96);
       else if (this.roundWinner !== null) {

@@ -26,6 +26,8 @@ export interface Record_ {
   bestCombo: number;
   unlocked: string[];
   blockBest?: number;
+  fallBest?: number;
+  fallGames?: number;
   blockGames?: number;
 }
 
