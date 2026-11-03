@@ -1,4 +1,5 @@
 import { art, CharId, META, Img } from './assets';
+import { WOLF_PAL, WOLF_SIT, WOLF_PANT, WOLF_TWITCH, WOLF_POUNCE, WOLF_HOWL } from './wolf';
 
 export type FState = 'offscreen' | 'intro' | 'idle' | 'jab' | 'kick' | 'heavy' | 'super' | 'hurt' | 'ko' | 'victory' | 'block';
 
@@ -24,25 +25,13 @@ interface AryaSprites {
   pant: HTMLCanvasElement;
   twitch: HTMLCanvasElement;
   pounce: HTMLCanvasElement;
+  howl: HTMLCanvasElement;
 }
 let aryaCache: AryaSprites | null = null;
 
 function getAryaSprites(): AryaSprites {
   if (aryaCache) return aryaCache;
-  const pal: Record<string, string> = {
-    O: '#100f18', // dark pixel outline
-    w: '#f8f7f3', // pure white husky coat
-    s: '#e0ddd4', // soft fur shading
-    b: '#d2ae88', // light brown / biscuit husky ear & forehead accents
-    d: '#b58d66', // deeper tan accent
-    p: '#ecbcb8', // inner ear
-    E: '#321e12', // warm dark brown eyes
-    N: '#7e443c', // brownish-pink snow nose
-    P: '#f47c8c', // pink tongue
-    c: '#1c1e2a', // black collar
-    T: '#ffcf4a', // gold collar tag
-  };
-  const make = (rows: string[], px = 4): HTMLCanvasElement => {
+  const make = (rows: string[], px = 3): HTMLCanvasElement => {
     const h = rows.length, w = Math.max(...rows.map((r) => r.length));
     const c = document.createElement('canvas');
     c.width = w * px; c.height = h * px;
@@ -50,116 +39,15 @@ function getAryaSprites(): AryaSprites {
     for (let r = 0; r < h; r++) {
       const line = rows[r];
       for (let col = 0; col < line.length; col++) {
-        const ch = line[col];
-        if (ch === ' ' || !pal[ch]) continue;
-        x.fillStyle = pal[ch];
+        const col_ = WOLF_PAL[line[col]];
+        if (!col_) continue;
+        x.fillStyle = col_;
         x.fillRect(col * px, r * px, px, px);
       }
     }
     return c;
   };
-
-  // Sitting alertly (facing right; flipped automatically by Fighter.facing)
-  const sit = make([
-    "      OOO        OOO    ",
-    "     ObbbO      ObbbO   ",
-    "    ObbpbbOOOOOObbpbbO  ",
-    "    ObwwwbbwwwwbbwwwbO  ",
-    "    OwwwwwwwwwwwwwwwwO  ",
-    "    OwwwwEEwwwwEEwwwwO  ",
-    "    OwwwwEEwwwwEEwwwwO  ",
-    "    OwwwwwwwNNNNwwwwwO  ",
-    "     OwwwwwwNNNNwwwwO   ",
-    "     OwwwwwwwwwwwwwwO   ",
-    "      OccccccccccccO    ",
-    "     OwwwwwwTTwwwwwwO   ",
-    "  OO OwwwwwwwwwwwwwwO   ",
-    " OwwOwwwwsssssssswwwwO  ",
-    "OwwwOwwwwsssssssswwwwO  ",
-    "OwwwOwwwwwwwwwwwwwwwwO  ",
-    " OwwOwwwwwwwwwwwwwwwwO  ",
-    "  OOOwwwwOwwwwwwOwwwwO  ",
-    "    OwwwwOssssssOwwwwO  ",
-    "    OwwwwOssssssOwwwwO  ",
-    "    OwwwwOOOOOOOOwwwwO  ",
-    "    OwwwwO      OwwwwO  ",
-    "    OOOOOO      OOOOOO  ",
-  ], 4);
-
-  // Sitting + happy pant (pink tongue out + tail wag shifted up)
-  const pant = make([
-    "      OOO        OOO    ",
-    "     ObbbO      ObbbO   ",
-    "    ObbpbbOOOOOObbpbbO  ",
-    "    ObwwwbbwwwwbbwwwbO  ",
-    "    OwwwwwwwwwwwwwwwwO  ",
-    "    OwwwwEEwwwwEEwwwwO  ",
-    "    OwwwwEEwwwwEEwwwwO  ",
-    "    OwwwwwwwNNNNwwwwwO  ",
-    "     OwwwwwwNNNNwwwwO   ",
-    "     OwwwwwwPPPPwwwwO   ",
-    "      OcccccPPPPcccO    ",
-    " OO  OwwwwwwTTwwwwwwO   ",
-    "OwwO OwwwwwwwwwwwwwwO   ",
-    "OwwwOwwwwsssssssswwwwO  ",
-    " OwwOwwwwsssssssswwwwO  ",
-    "  OOOwwwwwwwwwwwwwwwwO  ",
-    "    OwwwwwwwwwwwwwwwwO  ",
-    "    OwwwwOwwwwwwOwwwwO  ",
-    "    OwwwwOssssssOwwwwO  ",
-    "    OwwwwOssssssOwwwwO  ",
-    "    OwwwwOOOOOOOOwwwwO  ",
-    "    OwwwwO      OwwwwO  ",
-    "    OOOOOO      OOOOOO  ",
-  ], 4);
-
-  // Ear twitch + happy blink
-  const twitch = make([
-    "     OOO         OOO    ",
-    "    ObbbO       ObbbO   ",
-    "   ObbpbbOOOOOOObbpbbO  ",
-    "    ObwwwbbwwwwbbwwwbO  ",
-    "    OwwwwwwwwwwwwwwwwO  ",
-    "    OwwwwwwwwwwwwwwwwO  ",
-    "    OwwwwEEwwwwEEwwwwO  ",
-    "    OwwwwwwwNNNNwwwwwO  ",
-    "     OwwwwwwNNNNwwwwO   ",
-    "     OwwwwwwwwwwwwwwO   ",
-    "      OccccccccccccO    ",
-    "     OwwwwwwTTwwwwwwO   ",
-    "   OOOwwwwwwwwwwwwwwO   ",
-    "  OwwOwwwsssssssswwwwO  ",
-    " OwwwOwwwsssssssswwwwO  ",
-    "  OwwOwwwwwwwwwwwwwwwO  ",
-    "   OOwwwwwwwwwwwwwwwwO  ",
-    "    OwwwwOwwwwwwOwwwwO  ",
-    "    OwwwwOssssssOwwwwO  ",
-    "    OwwwwOssssssOwwwwO  ",
-    "    OwwwwOOOOOOOOwwwwO  ",
-    "    OwwwwO      OwwwwO  ",
-    "    OOOOOO      OOOOOO  ",
-  ], 4);
-
-  // Mid-air fierce Husky pounce for Stucchi's Super Move ("ARYA ATTACK!")
-  const pounce = make([
-    "                  OOO     OOO       ",
-    "                 ObbbO   ObbbO      ",
-    "                ObbpbbOOObbpbbO     ",
-    "  OOOO          ObwwwbbwbbwwwbO     ",
-    " OwwwwOO        OwwwwwwwwwwwwwO     ",
-    "OwwwwwwwOO     OwwwwEEwwwEEwwwwO    ",
-    " OwwwwwwwwOOOOOOwwwwwwwwwwwNNNNwO   ",
-    "  OOOwwwwwwwwwwwwwwcTccccccNNNNwO   ",
-    "     OwwwwwwwwwwwwwwwwwwwwwPPPPOO   ",
-    "    OwwwwwwwwsssssssswwwwwwwwwwwwwO ",
-    "   OwwwwwwsssssssssssswwwwwwwwwwwwwO",
-    "  OwwwwOwwwwwwwwwwwwwwwwwwOwwwwOOOO ",
-    " OwwwwO OOOOOOOOOOOOOOOOOO OwwwwO   ",
-    " OwwwO                      OwwwwO  ",
-    " OOOO                        OOOOO  ",
-  ], 4);
-
-  aryaCache = { sit, pant, twitch, pounce };
+  aryaCache = { sit: make(WOLF_SIT), pant: make(WOLF_PANT), twitch: make(WOLF_TWITCH), pounce: make(WOLF_POUNCE), howl: make(WOLF_HOWL) };
   return aryaCache;
 }
 
@@ -269,18 +157,18 @@ export class Fighter {
           if (this.t < lungeDur) {
             const k = this.t / lungeDur;
             this.frame = A[Math.min(6, Math.floor(k * 10))]; // Stucchi points/commands forward
-            this.aryaOffX = this.facing * 265 * (1 - Math.pow(1 - k, 2));
+            this.aryaOffX = this.facing * 190 * (1 - Math.pow(1 - k, 2));
             this.aryaHopY = -92 * Math.sin(k * Math.PI);
             if (k >= 0.78 && !this.impactFired) { this.impactFired = true; this.onImpact?.('super'); }
           } else if (this.t < lungeDur + holdDur) {
             this.frame = A[6];
-            this.aryaOffX = this.facing * 265;
+            this.aryaOffX = this.facing * 190;
             this.aryaHopY = -18;
             if (!this.impactFired) { this.impactFired = true; this.onImpact?.('super'); }
           } else if (this.t < lungeDur + holdDur + backDur) {
             const k = (this.t - lungeDur - holdDur) / backDur;
             this.frame = A[Math.max(0, 6 - Math.floor(k * 6))];
-            this.aryaOffX = this.facing * 265 * (1 - k);
+            this.aryaOffX = this.facing * 190 * (1 - k);
             this.aryaHopY = -45 * Math.sin(k * Math.PI);
           } else {
             this.offX = 0; this.aryaOffX = 0; this.aryaHopY = 0; this.aryaAttacking = false;
@@ -360,7 +248,7 @@ export class Fighter {
     ctx.restore();
 
     if (this.state === 'victory') {
-      const p = this.alt ? ch.portraitAlt : ch.portrait;
+      const p = (this.alt ? ch.victoryAlt || ch.portraitAlt : ch.victory || ch.portrait);
       const h = 238 * this.scale;
       const w = (p.width / p.height) * h;
       const breathe = Math.sin(time * 2.4) * 0.012;
@@ -373,7 +261,8 @@ export class Fighter {
       ag.addColorStop(0, color + '55'); ag.addColorStop(1, color + '00');
       ctx.fillStyle = ag; ctx.fillRect(-h, -h * 1.3, h * 2, h * 1.5);
       ctx.globalCompositeOperation = 'source-over';
-      ctx.drawImage(p, -w / 2, -h, w, h);
+      const baseW = (p as any).__baseW ? ((p as any).__baseW / p.height) * h : w;
+      ctx.drawImage(p, -baseW / 2, -h, w, h);
       ctx.restore();
       return;
     }
@@ -423,7 +312,7 @@ export class Fighter {
     // Draw Arya (Stucchi's white Husky companion)
     if (this.id === 'stucchi' && this.state !== 'offscreen') {
       const arya = getAryaSprites();
-      const baseHomeX = this.x - this.facing * 54 * this.scale;
+      const baseHomeX = this.x - this.facing * 66 * this.scale;
       const ax = (this.aryaAttacking ? this.x + this.aryaOffX : baseHomeX);
       const ay = this.y + (this.aryaAttacking ? this.aryaHopY : 2);
       // Arya ground shadow
@@ -445,9 +334,10 @@ export class Fighter {
         ctx.save();
         ctx.globalCompositeOperation = 'lighter';
         ctx.globalAlpha = 0.45;
-        ctx.drawImage(sp, -sp.width / 2 - 22, -sp.height + 4, sp.width * 1.12, sp.height * 1.12);
+        const K = 1.3;
+        ctx.drawImage(sp, (-sp.width / 2 - 22) * K, (-sp.height + 4) * K, sp.width * 1.12 * K, sp.height * 1.12 * K);
         ctx.restore();
-        ctx.drawImage(sp, -sp.width / 2, -sp.height, sp.width, sp.height);
+        ctx.drawImage(sp, -sp.width / 2 * K, -sp.height * K, sp.width * K, sp.height * K);
       } else {
         // Sitting beside Stucchi making occasional small movements (breathing, tail wag, ear twitch, happy pant)
         const cycle = time % 5.2;
@@ -460,7 +350,8 @@ export class Fighter {
           : arya.sit;
         const bob = Math.sin(time * 3.2) * 1.6;
         const hop = this.state === 'hurt' ? -Math.abs(Math.sin(this.t * 18)) * 10 : 0;
-        ctx.drawImage(spr, -spr.width / 2, -spr.height + bob + hop, spr.width, spr.height - bob);
+        const K = 1.3;
+        ctx.drawImage(spr, -spr.width / 2 * K, (-spr.height + bob + hop) * K, spr.width * K, (spr.height - bob) * K);
       }
       ctx.restore();
     }

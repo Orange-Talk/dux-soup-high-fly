@@ -173,6 +173,12 @@ button:focus-visible { outline: 3px solid var(--gold); outline-offset: 4px; }
 
 /* results */
 #s-results .box { width: 720px; }
+#s-results .endless { text-align: center; padding: 6px 0 14px; }
+#s-results .endless .big { font: 84px var(--fd); line-height: 1; color: #fff; text-shadow: 0 6px 0 rgba(0,0,0,.45); }
+#s-results .endless .nb { display: inline-block; margin-top: 10px; padding: 4px 16px; border-radius: 20px; background: var(--gold); color: #1a0b16; font: 18px var(--fd); animation: blink 1s infinite; }
+#s-results .endless .row2 { display: flex; justify-content: center; gap: 40px; margin-top: 18px; }
+#s-results .endless .row2 div { font: 30px var(--fd); }
+#s-results .endless .row2 small { display: block; font: 700 12px var(--fb); letter-spacing: 2px; color: var(--muted); }
 #s-results .win { text-align: center; }
 #s-results .win .k { font: 700 13px var(--fb); letter-spacing: 4px; color: var(--muted); }
 #s-results .win .n { font: 60px var(--fd); line-height: 1.05; color: var(--c); text-shadow: 0 5px 0 rgba(0,0,0,.45), 0 0 30px color-mix(in srgb, var(--c) 50%, transparent); }
@@ -341,6 +347,13 @@ kbd { display: inline-block; min-width: 18px; text-align: center; padding: 1px 6
         <div class="page">
           <h2>VS CPU<small>PICK HOW HARD THE CPU FIGHTS BACK</small></h2>
           <div class="cards" id="cpucards"></div>
+          <div class="hint"><b>←</b><b>→</b> choose &nbsp;·&nbsp; <b>Enter</b> select &nbsp;·&nbsp; <b>Esc</b> back</div>
+        </div>
+      </div>
+      <div class="screen" id="s-block">
+        <div class="page">
+          <h2>BLOCK PUZZLE<small>DRAG PIECES ANYWHERE · FILL A ROW OR COLUMN TO CLEAR IT</small></h2>
+          <div class="cards" id="blockcards"></div>
           <div class="hint"><b>←</b><b>→</b> choose &nbsp;·&nbsp; <b>Enter</b> select &nbsp;·&nbsp; <b>Esc</b> back</div>
         </div>
       </div>

@@ -14,7 +14,8 @@ export interface DuelInfo {
 export interface DuelPresence {
   app: 'bc'; ph: 'select' | 'play' | 'post';
   ch?: CharId; rdy?: boolean; nick?: string;
-  go?: { rd: number; seed: number; m: number; hc: CharId; gc: CharId }; // host only
+  go?: { rd: number; seed: number; m: number; hc: CharId; gc: CharId; gt?: 'fall' | 'block' }; // host only
+  gt?: 'fall' | 'block';
   res?: { rd: number; w: 'h' | 'g' | 'd'; m: number }; // host only
   seen?: number; // last round result applied
   m?: number; // match id

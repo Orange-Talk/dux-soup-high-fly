@@ -25,6 +25,8 @@ export interface Record_ {
   quads: number;
   bestCombo: number;
   unlocked: string[];
+  blockBest?: number;
+  blockGames?: number;
 }
 
 const KEY = 'blockclash.v1';

@@ -8,10 +8,13 @@ import { CHARS, charColor, getUnlockedChars, unlockSecretChar } from './chars';
 import { settings, record, save } from './settings';
 import { W, H, setDpr, FONT_D, block, PCOL } from './render';
 import { net as roomNet, DuelPresence } from './net';
-import { PeerNet } from './peernet';
+import { MqttNet } from './mqttnet';
+import { BlockBattle } from './blockbattle';
+import { bestMove, BlockCpu } from './blockai';
 declare const __STANDALONE__: boolean;
 const STANDALONE = typeof __STANDALONE__ !== 'undefined' && __STANDALONE__;
-const peerNet = new PeerNet();
+const peerNet = new MqttNet();
+peerNet.onAway = (away) => toast(away ? 'Your rival dropped out for a moment. Waiting for them to come back…' : 'Your rival is back');
 const net: any = STANDALONE ? peerNet : roomNet;
 let pendingJoin = '';
 import { CpuController, Difficulty } from './ai';
@@ -60,7 +63,7 @@ document.addEventListener('touchmove', (e) => {
 }, { passive: false });
 
 // ---------------------------------------------------------------- screens
-type ScreenId = 'loading' | 'title' | 'menu' | 'cpu' | 'select' | 'vs' | 'battle' | 'pause' | 'results' | 'settings' | 'howto' | 'online' | 'touchcfg';
+type ScreenId = 'loading' | 'title' | 'menu' | 'cpu' | 'block' | 'select' | 'vs' | 'battle' | 'pause' | 'results' | 'settings' | 'howto' | 'online' | 'touchcfg';
 let screen: ScreenId = 'loading';
 const handlers: Partial<Record<ScreenId, (e: NavEvent) => void>> = {};
 const BACKABLE: ScreenId[] = ['cpu', 'select', 'howto', 'online'];
@@ -166,8 +169,10 @@ function drawDeco(c: CanvasRenderingContext2D, dt: number) {
 }
 
 // ---------------------------------------------------------------- state
-type Mode = 'versus' | 'cpu' | 'online';
+type Mode = 'versus' | 'cpu' | 'online' | 'endless';
 let mode: Mode = 'versus';
+let gameType: 'fall' | 'block' = 'fall';
+const isBlock = () => gameType === 'block';
 let cpuDiff: Difficulty = 'normal';
 let battle: Battle | null = null;
 let lastCfg: [SideCfg, SideCfg] | null = null;
@@ -203,9 +208,10 @@ function renderRival() {
 }
 function buildMainMenu() {
   mainMenu = new Menu($('#mainmenu'), [
-    { t: 'VERSUS', s: 'Two players on this device', act: () => { mode = 'versus'; goSelect(); } },
-    { t: 'VS CPU', s: 'Practice against the computer', act: () => { mode = 'cpu'; goCpu(); } },
-    { t: 'ONLINE', s: 'Each of you on your own device', act: () => { mode = 'online'; goOnline(); } },
+    { t: 'VERSUS', s: 'Two players on this device', act: () => { gameType = 'fall'; mode = 'versus'; goSelect(); } },
+    { t: 'VS CPU', s: 'Practice against the computer', act: () => { gameType = 'fall'; mode = 'cpu'; goCpu(); } },
+    { t: 'ONLINE', s: 'Each of you on your own device', act: () => { gameType = 'fall'; mode = 'online'; goOnline(); } },
+    { t: 'BLOCK PUZZLE', s: 'Open grid · endless or duel', act: () => goBlock() },
     { t: 'HOW TO PLAY', s: 'Controls, attacks and supers', act: () => goHowto() },
     { t: 'SETTINGS', s: 'Sound, handling and rules', act: () => goSettings('menu') },
   ]);
@@ -236,6 +242,40 @@ handlers.cpu = (e) => {
   if (e.a === 'left' || e.a === 'up') { cpuIdx = (cpuIdx + 3) % 4; paintCpu(); audio.play('menuMove'); }
   else if (e.a === 'right' || e.a === 'down') { cpuIdx = (cpuIdx + 1) % 4; paintCpu(); audio.play('menuMove'); }
   else if (e.a === 'confirm') pickCpu();
+  else if (e.a === 'back') { audio.play('menuBack'); if (isBlock()) goBlock(); else goMenu(); }
+};
+
+// ---------------------------------------------------------------- block puzzle menu
+const BLOCK_MODES: { id: Mode; t: string; d: string; c: string }[] = [
+  { id: 'endless', t: 'ENDLESS', d: 'No timer, no rival. Place pieces, clear lines and see how far you can go.', c: '#ffcf4a' },
+  { id: 'cpu', t: 'VS CPU', d: 'Duel the computer. Every clear hurls stones onto its grid.', c: '#2fd9ff' },
+  { id: 'versus', t: 'VERSUS', d: 'Two players, one keyboard or controllers. Move a cursor and drop pieces.', c: '#3ee6a0' },
+  { id: 'online', t: 'ONLINE', d: 'Each of you on your own phone or computer. Same link, room codes.', c: '#ff7a45' },
+];
+let blockIdx = 0;
+function goBlock() {
+  gameType = 'block';
+  const best = record.blockBest || 0;
+  const root = $('#blockcards');
+  root.innerHTML = BLOCK_MODES.map((d, i) => `<button class="card" data-i="${i}" style="--c:${d.c}"><div class="lv">${d.id === 'endless' ? 'SOLO' : 'DUEL'}</div><div class="t" style="color:${d.c}">${d.t}</div><p>${d.d}</p>${d.id === 'endless' && best ? `<div class="pips" style="font:600 14px var(--fb);color:var(--gold)">BEST ${best}</div>` : ''}</button>`).join('');
+  root.querySelectorAll('.card').forEach((el) => {
+    el.addEventListener('pointerenter', () => { blockIdx = +(el as HTMLElement).dataset.i!; paintBlock(); });
+    el.addEventListener('click', () => { blockIdx = +(el as HTMLElement).dataset.i!; pickBlock(); });
+  });
+  paintBlock();
+  show('block');
+}
+function paintBlock() { $('#blockcards').querySelectorAll('.card').forEach((el, i) => el.classList.toggle('sel', i === blockIdx)); }
+function pickBlock() {
+  audio.play('menuSelect');
+  gameType = 'block';
+  mode = BLOCK_MODES[blockIdx].id;
+  if (mode === 'cpu') goCpu(); else if (mode === 'online') goOnline(); else goSelect();
+}
+handlers.block = (e) => {
+  if (e.a === 'left' || e.a === 'up') { blockIdx = (blockIdx + 3) % 4; paintBlock(); audio.play('menuMove'); }
+  else if (e.a === 'right' || e.a === 'down') { blockIdx = (blockIdx + 1) % 4; paintBlock(); audio.play('menuMove'); }
+  else if (e.a === 'confirm') pickBlock();
   else if (e.a === 'back') { audio.play('menuBack'); goMenu(); }
 };
 
@@ -285,7 +325,8 @@ function goSelect() {
       s.cur = idx; paintSelect(); lockSlot(si as 0 | 1);
     });
   });
-  $('#selsub').textContent = mode === 'versus' ? 'LOCAL VERSUS' : mode === 'cpu' ? 'VS CPU · ' + DIFFS.find((d) => d.id === cpuDiff)!.t : 'ONLINE DUEL';
+  $('#selsub').textContent = (isBlock() ? 'BLOCK PUZZLE · ' : '') + (mode === 'versus' ? 'LOCAL VERSUS' : mode === 'cpu' ? 'VS CPU · ' + DIFFS.find((d) => d.id === cpuDiff)!.t : mode === 'endless' ? 'ENDLESS' : 'ONLINE DUEL');
+  if (mode === 'online') net.pub({ gt: gameType });
   $('#selhint').innerHTML = mode === 'versus'
     ? 'P1 <b>A</b><b>D</b> move · <b>Space</b> pick &nbsp;·&nbsp; P2 <b>←</b><b>→</b> move · <b>Enter</b> pick &nbsp;·&nbsp; controllers: <b>Ⓐ</b> join &nbsp;·&nbsp; <b>Esc</b> back'
     : '<b>←</b><b>→</b> move · <b>Enter</b> or <b>Space</b> pick · <b>Esc</b> back';
@@ -312,7 +353,7 @@ function paintSelect() {
     const col = charColor(c, isAlt);
     pan.style.setProperty('--c', col);
     pan.style.setProperty('--pc', i === 0 ? 'var(--p1)' : 'var(--p2)');
-    const empty = mode === 'versus' ? !s.src : mode === 'online' && i === 1 ? onlineOppChar === null : false;
+    const empty = mode === 'versus' ? !s.src : mode === 'online' && i === 1 ? onlineOppChar === null : mode === 'endless' && i === 1;
     pan.classList.toggle('empty', empty);
     pan.classList.toggle('locked', s.locked);
     const img = pan.querySelector('.por') as HTMLImageElement;
@@ -331,7 +372,7 @@ function paintSelect() {
     pan.querySelector('.styd')!.textContent = random ? '' : info.styleDesc;
     pan.querySelector('.stats')!.innerHTML = random ? '' : (['power', 'defense', 'speed'] as const).map((k) => `<div class="stat"><span>${k.toUpperCase()}</span><div class="bars">${[1, 2, 3, 4, 5].map((n) => `<i class="${n <= info.stats[k] ? 'on' : ''}"></i>`).join('')}</div></div>`).join('');
     const join = pan.querySelector('.join .sm')!;
-    join.innerHTML = mode === 'online' ? 'Waiting for your opponent…' : i === 0 ? 'Press <b>Space</b> or <b>Ⓐ</b> to join' : 'Press <b>Enter</b> or <b>Ⓐ</b> to join';
+    join.innerHTML = mode === 'endless' ? 'Solo run. Pick the fighter who cheers you on.' : mode === 'online' ? 'Waiting for your opponent…' : i === 0 ? 'Press <b>Space</b> or <b>Ⓐ</b> to join' : 'Press <b>Enter</b> or <b>Ⓐ</b> to join';
   }
 }
 
@@ -364,6 +405,12 @@ function lockSlot(i: 0 | 1) {
 function checkSelectDone() {
   if (selectDone) return;
   if (mode === 'online') { onlineMaybeStart(); return; }
+  if (mode === 'endless') {
+    if (!slots[0].locked) return;
+    selectDone = true;
+    setTimeout(() => startEndless({ kind: 'human', src: 'solo', char: slots[0].char, alt: false, label: 'PLAYER 1' }), 600);
+    return;
+  }
   if (!slots[0].locked || !slots[1].locked) return;
   selectDone = true;
   setTimeout(() => {
@@ -381,7 +428,7 @@ handlers.select = (e) => {
   if (selectDone) return;
   if (e.src === 'mouse' && e.a === 'back') {
     audio.play('menuBack');
-    if (mode === 'online') { net.leaveDuel(); goMenu(); } else if (mode === 'cpu') goCpu(); else goMenu();
+    if (mode === 'online') { net.leaveDuel(); goMenu(); } else if (mode === 'cpu') goCpu(); else if (isBlock()) goBlock(); else goMenu();
     return;
   }
   if (mode === 'versus') {
@@ -421,8 +468,9 @@ function navSlot(i: 0 | 1, e: NavEvent) {
   else if (e.a === 'confirm') lockSlot(i);
   else if (e.a === 'back') {
     audio.play('menuBack');
-    if (mode === 'versus') { s.src = null; paintSelect(); }
+    if (mode === 'versus') { s.src = null; paintSelect(); if (!slots[0].src && !slots[1].src && isBlock()) goBlock(); }
     else if (mode === 'online') { net.leaveDuel(); goMenu(); }
+    else if (mode === 'endless') goBlock();
     else goCpu();
   }
 }
@@ -448,7 +496,7 @@ function startVs(a: SideCfg, b: SideCfg, then: () => void) {
 // ---------------------------------------------------------------- battle
 function startBattle(a: SideCfg, b: SideCfg, seed = (Math.random() * 2 ** 31) >>> 0) {
   lastCfg = [a, b];
-  battle = new Battle(a, b, settings.rounds);
+  battle = isBlock() ? (new BlockBattle(a, b, settings.rounds, { focus: isTouch && mode !== 'versus' }) as unknown as Battle) : new Battle(a, b, settings.rounds);
   bgMode = 'battle';
   battle.onMatchEnd = (w) => showResults(w);
   if (mode === 'online') setupOnlineBattle(battle);
@@ -456,11 +504,40 @@ function startBattle(a: SideCfg, b: SideCfg, seed = (Math.random() * 2 ** 31) >>
   show('battle');
 }
 
+function startEndless(a: SideCfg) {
+  lastCfg = [a, a];
+  const bb = new BlockBattle(a, null, 1);
+  bb.best = record.blockBest || 0;
+  bb.onSoloOver = (score, stats) => showEndlessOver(score, stats);
+  battle = bb as unknown as Battle;
+  bgMode = 'battle';
+  bb.beginRound((Math.random() * 2 ** 31) >>> 0, 1);
+  show('battle');
+}
+function showEndlessOver(score: number, stats: any) {
+  const prev = record.blockBest || 0;
+  const nb = score > prev;
+  if (nb) record.blockBest = score;
+  record.blockGames = (record.blockGames || 0) + 1;
+  save();
+  const box = $('#resbox');
+  box.style.setProperty('--c', '#ffcf4a');
+  box.innerHTML = `<div class="endless"><div class="win"><div class="k">ENDLESS · FINAL SCORE</div></div><div class="big">${score}</div>${nb && prev ? '<div class="nb">NEW BEST!</div>' : nb ? '<div class="nb">FIRST SCORE ON THE BOARD</div>' : ''}
+    <div class="row2"><div><small>BEST</small>${Math.max(prev, score)}</div><div><small>LINES</small>${stats.lines}</div><div><small>BEST COMBO</small>x${Math.max(1, stats.maxCombo + 1)}</div><div><small>PIECES</small>${stats.pieces}</div></div></div><div class="menu" id="resmenu"></div>`;
+  resMenu = new Menu($('#resmenu'), [
+    { t: 'PLAY AGAIN', act: () => { if (lastCfg) startEndless(lastCfg[0]); } },
+    { t: 'BLOCK MENU', act: () => { battle = null; goMenu(); goBlock(); } },
+    { t: 'MAIN MENU', act: () => { battle = null; goMenu(); } },
+  ], true);
+  if (nb) { audio.play('victory'); for (let i = 0; i < 90; i++) menuFx.spawn({ x: Math.random() * W, y: -20 - Math.random() * 200, vx: (Math.random() - 0.5) * 120, vy: 80 + Math.random() * 160, kind: 'confetti', size: 6, max: 4, g: 60, drag: 0.99, add: false, color: ['#ffcf4a', '#ffffff', '#ff6a3d', '#3ee6a0'][i % 4], vr: (Math.random() - 0.5) * 10 }); }
+  setTimeout(() => show('results', true), 200);
+}
+
 let pauseMenu: Menu;
 function pause() {
   if (!battle || screen !== 'battle') return;
   if (mode !== 'online') battle.paused = true;
-  const touchItems: MItem[] = (isTouch || settings.touch !== 'off') && mode !== 'versus'
+  const touchItems: MItem[] = (isTouch || settings.touch !== 'off') && mode !== 'versus' && !isBlock()
     ? [
         { t: 'CONTROLS: ' + (settings.touch === 'buttons' ? 'BUTTONS' : 'SWIPE'), s: 'Tap to switch between Swipe & Buttons', act: () => { toggleTouchMode(); pause(); } },
         { t: 'CUSTOMIZE BUTTONS', s: 'Move, resize or hide mobile buttons', act: () => openTouchCustomizer('pause') },
@@ -468,7 +545,7 @@ function pause() {
     : [];
   const items: MItem[] = mode === 'online'
     ? [{ t: 'RESUME', act: resume }, ...touchItems, { t: 'LEAVE MATCH', act: () => { resume(); net.leaveDuel(); goMenu(); } }]
-    : [{ t: 'RESUME', act: resume }, ...touchItems, { t: 'RESTART MATCH', act: () => { resume(); if (lastCfg) startBattle(lastCfg[0], lastCfg[1]); } }, { t: 'SETTINGS', act: () => goSettings('pause') }, { t: 'QUIT TO MENU', act: () => { battle = null; goMenu(); } }];
+    : [{ t: 'RESUME', act: resume }, ...touchItems, { t: mode === 'endless' ? 'RESTART' : 'RESTART MATCH', act: () => { resume(); if (lastCfg) { if (mode === 'endless') startEndless(lastCfg[0]); else startBattle(lastCfg[0], lastCfg[1]); } } }, { t: 'SETTINGS', act: () => goSettings('pause') }, { t: 'QUIT TO MENU', act: () => { battle = null; goMenu(); } }];
   pauseMenu = new Menu($('#pausemenu'), items);
   audio.musicMode('quiet');
   show('pause', true);
@@ -477,6 +554,17 @@ function resume() { if (battle) { battle.paused = false; audio.musicMode('battle
 handlers.pause = (e) => { if (!pauseMenu.nav(e) && (e.a === 'back' || e.a === 'pause')) { audio.play('menuBack'); resume(); } };
 handlers.battle = (e) => { if (e.a === 'pause') pause(); };
 $('#pausebtn').addEventListener('click', () => pause());
+{
+  const bt = $('#s-battle');
+  const lp = (e: PointerEvent): [number, number] => { const r = stage.getBoundingClientRect(); return [(e.clientX - r.left) / scale, (e.clientY - r.top) / scale]; };
+  const bb = () => (battle && (battle as any) instanceof BlockBattle && screen === 'battle' ? (battle as unknown as BlockBattle) : null);
+  bt.style.touchAction = 'none';
+  bt.addEventListener('pointerdown', (e) => { const b = bb(); if (!b) return; e.preventDefault(); audio.unlock(); try { bt.setPointerCapture(e.pointerId); } catch { /* ignore */ } const [x, y] = lp(e); b.pointerDown(x, y, e.pointerType === 'touch'); });
+  bt.addEventListener('pointermove', (e) => { const b = bb(); if (!b) return; const [x, y] = lp(e); b.pointerMove(x, y); });
+  const up = (e: PointerEvent) => { const b = bb(); if (!b) return; const [x, y] = lp(e); b.pointerUp(x, y); };
+  bt.addEventListener('pointerup', up);
+  bt.addEventListener('pointercancel', up);
+}
 window.addEventListener('blur', () => { if (screen === 'battle' && mode !== 'online' && battle && battle.phase === 'play') pause(); });
 
 // ---------------------------------------------------------------- results
@@ -499,7 +587,10 @@ function showResults(w: 0 | 1) {
   });
   for (const t of tot) { record.quads += t.quads; record.bestCombo = Math.max(record.bestCombo, t.maxCombo); }
   save();
-  const rows: [string, (t: typeof tot[0]) => number, string?][] = [
+  const rows: [string, (t: typeof tot[0]) => number, string?][] = isBlock() ? [
+    ['LINES CLEARED', (t) => t.lines], ['STONES SENT', (t) => t.attack], ['BIG CLEARS (3+)', (t) => t.quads],
+    ['BEST COMBO', (t) => Math.max(0, t.maxCombo + 1)], ['PIECES PLACED', (t) => t.pieces],
+  ] : [
     ['LINES CLEARED', (t) => t.lines], ['ATTACK SENT', (t) => t.attack], ['QUADS', (t) => t.quads], ['T-SPINS', (t) => t.spins],
     ['BEST COMBO', (t) => Math.max(0, t.maxCombo + 1)], ['PIECES / MIN', (t) => (t.time > 0 ? Math.round((t.pieces / t.time) * 60000) : 0)],
   ];
@@ -588,6 +679,13 @@ const HOW = [
       `<h5>CONTROLLER</h5><table><tr><td>Move / soft drop</td><td>D-pad or stick</td></tr><tr><td>Hard drop</td><td>D-pad ↑</td></tr><tr><td>Rotate right / left</td><td>Ⓐ / Ⓑ</td></tr><tr><td>Hold</td><td>Ⓧ or bumpers</td></tr><tr><td>Super</td><td>Ⓨ</td></tr><tr><td>Pause</td><td>Start</td></tr></table>`,
     ],
   },
+  {
+    t: 'BLOCK PUZZLE', cols: [
+      `<h5>THE IDEA</h5><p>An open 8 by 8 grid. You get three pieces at a time. Drag each one anywhere it fits. Fill a whole row or a whole column and it clears.</p><p>Pieces never rotate. When none of your pieces fit anywhere, the run is over.</p>`,
+      `<h5>ENDLESS</h5><p>Just you and the grid, chasing your best score. Clearing several lines at once and clearing on back-to-back turns builds big combos.</p><p>Grayed-out pieces in the tray do not fit right now.</p>`,
+      `<h5>DUELS</h5><p>Every clear throws stones onto your rival's grid. Clear on your own turn to block stones headed your way. Fill the Super bar and tap it to unleash your fighter's special.</p><p>Versus on one keyboard: P1 moves with <kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd>, swaps piece with <kbd>Q</kbd>, drops with <kbd>Space</kbd>. P2 uses the arrows, <kbd>/</kbd> and <kbd>Enter</kbd>.</p>`,
+    ],
+  },
 ];
 function goHowto() { howTab = 0; paintHow(); show('howto'); }
 function paintHow() {
@@ -635,7 +733,7 @@ async function standaloneHost() {
   if (!code) { standaloneError(); return; }
   const link = shareLink(code);
   const canShare = typeof (navigator as any).share === 'function';
-  onlineView('ROOM ' + code, `Send this link to your rival. The match starts as soon as they open it.<br><span id="sharelink" style="user-select:text;-webkit-user-select:text;color:var(--gold);font-weight:700">${link}</span>`, [
+  onlineView('ROOM ' + code, `Send this link to your rival. It's fine to switch apps to send it. The match starts as soon as they open it.<br><span id="sharelink" style="user-select:text;-webkit-user-select:text;color:var(--gold);font-weight:700">${link}</span>`, [
     { t: canShare ? 'SHARE LINK' : 'COPY LINK', act: () => {
       if (canShare) { (navigator as any).share({ title: 'Block Clash Duel', text: 'Fight me in Block Clash Duel', url: link }).catch(() => {}); return; }
       const done = () => toast('Link copied. Paste it in a text to your rival.');
@@ -699,6 +797,7 @@ net.onDuel = (p: DuelPresence) => {
   // character select updates
   if (screen === 'select' && mode === 'online') {
     const prev = onlineOppChar;
+    if (net.info && !net.info.host && p.gt && p.gt !== gameType) { gameType = p.gt; $('#selsub').textContent = (isBlock() ? 'BLOCK PUZZLE · ' : '') + 'ONLINE DUEL'; }
     onlineOppChar = p.ch || null;
     onlineOppReady = !!p.rdy && !!p.ch;
     if (p.ch) { slots[1].char = p.ch; slots[1].cur = Math.max(0, getSelectTiles().indexOf(p.ch)); }
@@ -710,6 +809,7 @@ net.onDuel = (p: DuelPresence) => {
   if (p.go && net.info && !net.info.host) {
     if (!onlineStarted && p.go.rd === 1 && p.go.m === onlineMatch && (screen === 'select' || screen === 'results')) {
       onlineStarted = true;
+      gameType = p.go.gt || 'fall';
       launchOnline(p.go.seed, p.go.gc, p.go.hc);
     } else if (battle && onlineStarted && p.go.m === onlineMatch && p.go.rd === battle.round + 1 && battle.phase === 'result') {
       battle.beginRound(p.go.seed, p.go.rd);
@@ -727,12 +827,12 @@ net.onDuel = (p: DuelPresence) => {
   if (net.info && net.info.host && screen === 'results' && p.again === onlineMatch && net.mine.again === onlineMatch) {
     onlineMatch++; onlineStarted = false;
     const seed = (Math.random() * 2 ** 31) >>> 0;
-    net.pub({ go: { rd: 1, seed, m: onlineMatch, hc: slots[0].char, gc: onlineOppChar || 'nang' }, res: undefined, again: undefined });
+    net.pub({ go: { rd: 1, seed, m: onlineMatch, hc: slots[0].char, gc: onlineOppChar || 'nang', gt: gameType }, res: undefined, again: undefined });
     onlineStarted = true;
     launchOnline(seed, slots[0].char, onlineOppChar || 'nang');
   }
   if (net.info && !net.info.host && p.go && p.go.m > onlineMatch && screen === 'results') {
-    onlineMatch = p.go.m; onlineStarted = true; net.pub({ again: undefined, seen: 0 });
+    onlineMatch = p.go.m; onlineStarted = true; gameType = p.go.gt || gameType; net.pub({ again: undefined, seen: 0 });
     launchOnline(p.go.seed, p.go.gc, p.go.hc);
   }
 };
@@ -741,7 +841,7 @@ function onlineMaybeStart() {
   if (slots[0].locked && onlineOppReady && onlineOppChar) {
     onlineStarted = true;
     const seed = (Math.random() * 2 ** 31) >>> 0;
-    net.pub({ go: { rd: 1, seed, m: onlineMatch, hc: slots[0].char, gc: onlineOppChar } });
+    net.pub({ go: { rd: 1, seed, m: onlineMatch, hc: slots[0].char, gc: onlineOppChar, gt: gameType } });
     launchOnline(seed, slots[0].char, onlineOppChar);
   }
 }
@@ -782,7 +882,7 @@ function onlineTick(dt: number) {
       if (seen >= battle.round || battle.phaseT > 6) {
         const seed = (Math.random() * 2 ** 31) >>> 0;
         const rd = battle.round + 1;
-        net.pub({ go: { rd, seed, m: onlineMatch, hc: battle.sides[0].cfg.char, gc: battle.sides[1].cfg.char } });
+        net.pub({ go: { rd, seed, m: onlineMatch, hc: battle.sides[0].cfg.char, gc: battle.sides[1].cfg.char, gt: gameType } });
         battle.beginRound(seed, rd);
       }
     }
@@ -1138,7 +1238,7 @@ function updateTouch() {
   const activeMode: TouchModeKey | 'off' = editing
     ? cfgMode
     : settings.touch === 'off' ? 'off' : settings.touch === 'buttons' ? 'buttons' : (isTouch || settings.touch === 'swipe' ? 'swipe' : 'off');
-  const on = editing || (activeMode !== 'off' && screen === 'battle' && mode !== 'versus' && (isTouch || settings.touch === 'buttons'));
+  const on = editing || (activeMode !== 'off' && screen === 'battle' && mode !== 'versus' && !isBlock() && (isTouch || settings.touch === 'buttons'));
   const root = $('#touch');
   root.classList.toggle('on', on);
   root.classList.toggle('editing', editing);
@@ -1192,7 +1292,16 @@ function frame(now: number) {
       const lb = sb.querySelector('.lb');
       if (lb) lb.textContent = supReady ? 'READY!' : 'SUPER';
     }
-    if (screen === 'battle' && $('#touch').classList.contains('on') && battle.round === 1 && (battle.phase === 'intro' || battle.phase === 'fight')) {
+    if (screen === 'battle' && isBlock() && battle.round === 1 && (battle.phase === 'intro' || battle.phase === 'fight')) {
+      ctx.save(); ctx.textAlign = 'center'; ctx.font = `600 18px 'Chakra Petch', sans-serif`;
+      const hx = mode === 'endless' ? 640 : 236, hy = mode === 'endless' ? 640 : 330;
+      ctx.fillStyle = 'rgba(5,5,20,0.84)'; ctx.fillRect(hx - 190, hy - 26, 380, mode === 'versus' ? 84 : 58);
+      ctx.fillStyle = '#fff';
+      ctx.fillText(mode === 'versus' ? 'Move with arrows / WASD, swap piece Q·/' : 'Drag a piece from the tray onto the grid', hx, hy);
+      ctx.fillStyle = '#ffcf4a'; ctx.fillText(mode === 'versus' ? 'Drop with Space / Enter' : 'Fill a row or column to clear it', hx, hy + 26);
+      ctx.restore();
+    }
+    if (screen === 'battle' && !isBlock() && $('#touch').classList.contains('on') && battle.round === 1 && (battle.phase === 'intro' || battle.phase === 'fight')) {
       ctx.save(); ctx.textAlign = 'center'; ctx.font = `600 16px 'Chakra Petch', sans-serif`;
       ctx.fillStyle = 'rgba(5,5,20,0.84)'; ctx.fillRect(112, 534, 278, 98);
       ctx.strokeStyle = 'rgba(255,207,74,0.45)'; ctx.lineWidth = 1.5; ctx.strokeRect(112, 534, 278, 98);
@@ -1271,7 +1380,7 @@ async function boot() {
   }
   goTitle();
   // hidden test hooks for automated play-testing and secret character unlocking
-  (window as any).__bc = { get battle() { return battle; }, get screen() { return screen; }, unlockSecretChar, openTouchCustomizer, autoPlay: (d: Difficulty = 'normal') => { const s = battle && battle.sides[0]; if (s) { s.cfg.kind = 'cpu'; s.cpu = new CpuController(d); (battle as any).autoDiff = d; } }, startCpuDemo: (d: Difficulty = 'hard', d2: Difficulty = d) => { mode = 'cpu'; const a: SideCfg = { kind: 'cpu', diff: d2, char: 'nong', alt: false, label: 'CPU A' }; const b: SideCfg = { kind: 'cpu', diff: d, char: 'nang', alt: false, label: 'CPU B' }; startBattle(a, b); }, net };
+  (window as any).__bc = { bestMove, startEndless, get battle() { return battle; }, get screen() { return screen; }, unlockSecretChar, openTouchCustomizer, autoPlay: (d: Difficulty = 'normal') => { const s: any = battle && battle.sides[0]; if (s && isBlock()) { s.cfg.kind = 'cpu'; s.cpu = new BlockCpu(d); return; } if (s) { s.cfg.kind = 'cpu'; s.cpu = new CpuController(d); (battle as any).autoDiff = d; } }, blockDemo: (d: Difficulty = 'normal', d2: Difficulty = d) => { gameType = 'block'; mode = 'cpu'; startBattle({ kind: 'cpu', diff: d2, char: 'stucchi', alt: false, label: 'CPU A' }, { kind: 'cpu', diff: d, char: 'nang', alt: false, label: 'CPU B' }); }, startCpuDemo: (d: Difficulty = 'hard', d2: Difficulty = d, c1: CharId = 'nong', c2: CharId = 'nang') => { gameType = 'fall'; mode = 'cpu'; const a: SideCfg = { kind: 'cpu', diff: d2, char: c1, alt: false, label: 'CPU A' }; const b: SideCfg = { kind: 'cpu', diff: d, char: c2, alt: c1 === c2, label: 'CPU B' }; startBattle(a, b); }, net };
 }
 requestAnimationFrame(frame);
 boot();

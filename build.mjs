@@ -2,8 +2,9 @@ import * as esbuild from 'esbuild';
 import fs from 'fs';
 const standalone = process.argv.includes('--standalone');
 const peerHost = (process.argv.find((a) => a.startsWith('--peer=')) || '').slice(7);
+const mqttUrls = (process.argv.find((a) => a.startsWith('--mqtt=')) || '').slice(7);
 const r = await esbuild.build({
-  define: { __STANDALONE__: standalone ? 'true' : 'false', __PEER_HOST__: JSON.stringify(peerHost) },
+  define: { __STANDALONE__: standalone ? 'true' : 'false', __PEER_HOST__: JSON.stringify(peerHost), __MQTT_URLS__: JSON.stringify(mqttUrls) },
   entryPoints: ['src/main.ts'], bundle: true, minify: true, format: 'iife', target: ['es2019', 'safari14'],
   loader: { '.webp': 'dataurl', '.mp3': 'base64', '.json': 'json' }, write: false, legalComments: 'none',
 });
@@ -18,7 +19,7 @@ const faces = [
 ].map(([n, w, p]) => `@font-face{font-family:'${n}';font-style:normal;font-weight:${w};font-display:block;src:url(data:font/woff2;base64,${f(p)}) format('woff2')}`).join('');
 tpl = tpl.replace('/*__FONTS__*/', faces);
 const [a, b] = tpl.split('/*__BUNDLE__*/');
-const out = standalone ? (peerHost ? 'dist/standalone-test.html' : 'dist/standalone/index.html') : 'dist/index.html';
+const out = standalone ? (peerHost || mqttUrls ? 'dist/standalone-test.html' : 'dist/standalone/index.html') : 'dist/index.html';
 let html = a + js + b;
 if (standalone) html = '<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover"><meta name="theme-color" content="#07061a"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="mobile-web-app-capable" content="yes"></head><body>' + html + '</body></html>';
 fs.mkdirSync(out.replace(/\/[^/]+$/, ''), { recursive: true });

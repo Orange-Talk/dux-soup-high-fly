@@ -1,3 +1,4 @@
+import { WOLF_PAL, WOLF_SIT, WOLF_HOWL } from './wolf';
 import nongAtlas from '../assets/nong_atlas.webp';
 import nangAtlas from '../assets/nang_atlas.webp';
 import nongPortrait from '../assets/nong_portrait.webp';
@@ -12,7 +13,7 @@ export type CharId = 'nong' | 'nang' | 'stucchi';
 export type Img = HTMLImageElement | HTMLCanvasElement;
 
 export interface CharArt {
-  atlas: Img; atlasAlt: Img; portrait: Img; portraitAlt: Img;
+  atlas: Img; atlasAlt: Img; portrait: Img; portraitAlt: Img; victory?: Img; victoryAlt?: Img;
   frames: Record<string, number[]>;
 }
 
@@ -49,10 +50,11 @@ function hsv2rgb(h: number, s: number, v: number): [number, number, number] {
 }
 
 /** Build Stucchi + Arya pixel-art portrait (ribbed olive beanie, dark Italian beard, Radio Rental hoodie, blue/orange Nikes, and Arya sitting beside him) */
-function buildStucchiPortrait(src: HTMLImageElement): HTMLCanvasElement {
-  const W = src.naturalWidth, H = src.naturalHeight;
+function buildStucchiPortrait(src: HTMLImageElement, wolf: string[] = WOLF_SIT, extra = 0, S = 3): HTMLCanvasElement {
+  const W = src.naturalWidth + extra, H = src.naturalHeight;
   const c = document.createElement('canvas');
   c.width = W; c.height = H;
+  if (extra) (c as any).__baseW = src.naturalWidth;
   const ctx = c.getContext('2d', { willReadFrequently: true })!;
   ctx.drawImage(src, 0, 0);
   try {
@@ -173,59 +175,17 @@ function buildStucchiPortrait(src: HTMLImageElement): HTMLCanvasElement {
     setBlock(132, 158, 4, 50, 240, 238, 232);
 
     // Paint Arya (all-white Husky with light-brown ear/forehead accents & snow nose) sitting beside Stucchi
-    const S = 4;
-    const ax0 = 148;
-    const aryaMap = [
-      "  OOO          OOO      ",
-      " ObbbO        ObbbO     ",
-      "ObbpbbO      ObbpbbO    ",
-      "ObwwwbOOOOOOOObbwwwbO   ",
-      "ObwwwwbbwwwwbbwwwwwbO   ",
-      "OwwwwwwwwwwwwwwwwwwwO   ",
-      "OwwwwEEwwwwwwEEwwwwwO   ",
-      "OwwwwEEwwwwwwEEwwwwwO   ",
-      "OwwwwwwwNNNNwwwwwwwwO   ",
-      " OwwwwwwNNNNwwwwwwwO    ",
-      " OwwwwwwPPPPwwwwwwwO    ",
-      "  OwwwwwPPPPwwwwwwO     ",
-      "   OccccccccccccOO      ",
-      "  OwwwwwwTTwwwwwwwO     ",
-      " OwwwwwwwwwwwwwwwwwO    ",
-      " OwwwwsssssssswwwwwO OO ",
-      "OwwwwwsssssssswwwwwwOwwO",
-      "OwwwwwwwwwwwwwwwwwwwOwwO",
-      "OwwwwwwwwwwwwwwwwwwwOwwO",
-      "OwwwwwwwwwwwwwwwwwwOwwwO",
-      "OwwwwwwwwwwwwwwwwwwOwwO ",
-      "OwwwOwwwwwwwwwwOwwwOO   ",
-      "OwwwOwwwwwwwwwwOwwwO    ",
-      "OwwwOssssssssssOwwwO    ",
-      "OwwwOssssssssssOwwwO    ",
-      "OwwwOssssssssssOwwwO    ",
-      "OwwwOssssssssssOwwwO    ",
-      "OwwwOOOOOOOOOOOOwwwO    ",
-      "OwwwO          OwwwO    ",
-      "OOOOO          OOOOO    "
-    ];
+    const aryaMap = wolf;
+    const aw = Math.max(...aryaMap.map((r) => r.length)) * S;
+    const ax0 = W - aw;
     const ayFloor = 516 - aryaMap.length * S;
-    const pal: Record<string, [number, number, number]> = {
-      O: [16, 15, 22],
-      w: [248, 247, 243],
-      s: [226, 223, 216],
-      b: [210, 174, 136],
-      p: [236, 188, 184],
-      E: [48, 30, 18],
-      N: [126, 68, 60],
-      P: [244, 124, 140],
-      c: [28, 30, 42],
-      T: [255, 207, 74],
-    };
+    const hex = (h: string): [number, number, number] => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)];
     for (let r = 0; r < aryaMap.length; r++) {
       const line = aryaMap[r];
       for (let col = 0; col < line.length; col++) {
-        const ch = line[col];
-        if (ch === ' ') continue;
-        const rgb = pal[ch];
+        const h = WOLF_PAL[line[col]];
+        if (!h) continue;
+        const rgb = hex(h);
         setBlock(ax0 + col * S, ayFloor + r * S, S, S, rgb[0], rgb[1], rgb[2]);
       }
     }
@@ -395,6 +355,7 @@ export async function loadAll(onProgress?: (f: number) => void) {
     art.chars[id] = { atlas: a, atlasAlt: recolor(a, id), portrait: p, portraitAlt: recolor(p, id), frames: META.frames[id] };
   }
   const stucchiP = buildStucchiPortrait(out.nongP);
+  const stucchiV = buildStucchiPortrait(out.nongP, WOLF_HOWL, 120, 5);
   const stucchiA = buildStucchiAtlas(out.nongA);
   try { PORTRAIT_URLS.stucchi = stucchiP.toDataURL('image/png'); } catch { /* ignore */ }
   art.chars.stucchi = {
@@ -402,6 +363,8 @@ export async function loadAll(onProgress?: (f: number) => void) {
     atlasAlt: recolor(stucchiA, 'stucchi'),
     portrait: stucchiP,
     portraitAlt: recolor(stucchiP, 'stucchi'),
+    victory: stucchiV,
+    victoryAlt: Object.assign(recolor(stucchiV, 'stucchi'), { __baseW: (stucchiV as any).__baseW }),
     frames: META.frames.nong,
   };
   art.bg = out.bg; art.strike = out.strike; art.burst = out.burst; art.warn = out.warn;
