@@ -14,24 +14,26 @@ Rules (enforced by `scripts/check.sh`):
 ## [1.17.0] - 2026-11-06
 
 ### Added
-- Midnight: DIVE and PULL UP. Every so often the pipes pause and a "DIVE!"
-  warning appears. A storm ceiling sinks toward you: stop flapping and let
-  the duck drop under it. Then "PULL UP!": the city's rooftops rise from
-  below and you have to flap hard to climb over them. Starts at 100 points,
-  then every 150 points. Midnight only; Day and STACKED are unchanged.
-- While diving the duck falls a little slower, like a skydive. Flapping
-  works exactly as normal.
-- The shield protects against the storm and the rooftops too.
+- Midnight: an endless skydive starting at 100 points, then every 150 points.
+  Pipes pause and a "DIVE! / STOP FLAPPING" warning appears before a storm
+  ceiling sinks from above. Stop flapping to escape it.
+- At 70% screen height the camera follows the duck down. Clouds, speed lines
+  and city lights rush upward, with no deadly bottom boundary during the dive.
+- After the dive, the storm clears and the duck gently returns to the middle.
+  "LEVELING OUT / TAP TO FLY" prepares you before normal flight resumes.
+- A shield absorbs one storm hit and pushes the duck safely below its edge.
 
 ### Fixed
-- Turning the phone sideways during a run could end it instantly when the
-  duck was low on the screen. The game now resizes first and redraws after,
-  so the duck keeps its place.
+- Removed the PULL UP rooftop phase. The event is a continuous dive followed
+  by a safe return to normal flight. Day and STACKED keep their existing rules.
+- Turning the phone sideways during a run resizes before redrawing, so a low
+  duck keeps its relative position instead of crashing on the new frame.
 
 ### Fairness
-- Tested in a simulation before it was built: a player who reacts in about
-  half a second and taps 3 times a second always gets through, from any
-  height. A player who ignores the warnings always gets caught.
+- The warning allows time to react within half a second and stop flapping,
+  even when the duck is high or rising. Flapping into the active storm is deadly.
+- Existing pipes clear before the warning. Pipes stay paused through recovery
+  and return from the right after the duck is back in the middle.
 
 ## [1.16.0] - 2026-10-14
 
