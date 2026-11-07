@@ -11,6 +11,23 @@ Rules (enforced by `scripts/check.sh`):
 
 ---
 
+## [1.19.1] - 2026-11-06
+
+### Fixed
+- Dive controls now turn and move the duck in the direction pressed immediately.
+  Reversing cancels the previous target instead of continuing the old movement.
+- Dragging starts where the duck is, with no jump toward the first touch.
+  The bottom arrows now support holding to steer. Releasing stops movement.
+- Pausing, rotating, or cancelling a touch clears held steering controls.
+
+### Animated
+- Stronger left/right turns, smoother returns to the straight dive, and air
+  streaks that follow the duck's heading.
+- Animated wings using each skin's original artwork: flaps after a tap,
+  tucked wings during a straight dive, and wider wing movement while turning.
+- Subtle body movement and a smooth transition back to normal flight. Bird
+  size, hitboxes, flap strength, and Day/STACKED gameplay stay the same.
+
 ## [1.19.0] - 2026-11-06
 
 ### Changed

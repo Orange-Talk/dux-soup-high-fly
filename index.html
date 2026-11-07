@@ -316,7 +316,7 @@
 
 <script>
        // Your p5.js game code
-       const DEPLOY_VERSION = '1.19.0';
+       const DEPLOY_VERSION = '1.19.1';
        const SHARE_URL = 'https://highflygame-1ac8f.web.app/';
        // p5 drops the font name straight into the canvas font string. Unquoted,
        // "Press Start 2P" is invalid CSS (a name part can't start with a
@@ -624,7 +624,7 @@
            let velScale = ry;
            bird.size = height * 0.08;
            bird.x = altEvent && altEvent.steering() ? bird.x * rx : width / 4;
-           if (altEvent) altEvent.pointerId = null;
+           if (altEvent) altEvent.releaseSteerPointer();
            bird.y *= ry;
            bird.baseY = height / 2;
            bird.gravity = 0.0005 * height;
@@ -655,7 +655,7 @@
        function pauseGame() {
            if (gameState === 'play') {
                gameState = 'paused';
-               if (altEvent) altEvent.pointerId = null;
+               if (altEvent) altEvent.releaseSteerPointer();
            }
        }
 
@@ -2462,7 +2462,7 @@
 
        class Bird {
            constructor() { this.size = height * 0.08; this.reset(); }
-           reset() { this.size = height * 0.08; this.x = width / 4; this.y = height / 2; this.gravity = 0.0005 * height; this.lift = -0.012 * height; this.velocity = 0; this.baseY = height / 2; this.fallScale = 1; }
+           reset() { this.size = height * 0.08; this.x = width / 4; this.y = height / 2; this.gravity = 0.0005 * height; this.lift = -0.012 * height; this.velocity = 0; this.baseY = height / 2; this.fallScale = 1; this.flapAt = -100; }
            // Normal flap physics. Event camera controls run after this step.
            update() { this.velocity += this.gravity * (this.velocity > 0 ? this.fallScale : 1); this.velocity *= 0.98; this.y += this.velocity; }
            hover() { this.x = width / 2; this.y = this.baseY + sin(frameCount * 0.05) * 10; this.velocity = 0; }
@@ -2488,9 +2488,9 @@
                    // Mario-style invincibility strobe: flash between the duck's
                    // own colours and a solid rainbow recolour of its shape.
                    let sil = (frameCount % 8 < 5) ? starSilhouette(imgToShow) : null;
-                   image(sil || imgToShow, 0, 0, ds, ds);
+                   this.drawAnimatedSprite(sil || imgToShow, ds);
                } else {
-                   image(imgToShow, 0, 0, ds, ds);
+                   this.drawAnimatedSprite(imgToShow, ds);
                }
                drawingContext.imageSmoothingEnabled = ctx0;
                pop();
@@ -2504,7 +2504,65 @@
                    pop();
                }
             }
-           up() { this.velocity = this.lift; Sfx.flap(); }
+           animationPose() {
+               const running = gameState === 'play' || gameState === 'paused';
+               const t = running ? simFrame : frameCount;
+               const kick = running ? constrain(1 - (simFrame - this.flapAt) / 14, 0, 1) : 0;
+               const diving = running && altEvent && altEvent.steering();
+               const turn = diving ? abs(altEvent.lean) : 0;
+               const beat = sin(t * (running ? 0.46 : 0.12));
+               const fold = diving ? (altEvent.phase === 'exit' ? 1 - altEvent.exitProgress() : altEvent.phase === 'dive_warn' ? altEvent.smooth(altEvent.t / ALTITUDE_EVENT.warnSteps) : 1) : 0;
+               const normalWing = running ? 0.74 + beat * 0.22 + kick * 0.14 : 0.94 + beat * 0.05;
+               return {
+                   wing: diving ? lerp(normalWing, 0.43 + beat * 0.08 + turn * 0.37, fold) : normalWing,
+                   sweep: beat * 0.07 + kick * 0.07,
+                   bob: sin(t * 0.23) * (running ? 0.008 : 0.012),
+                   kick,
+                   diving,
+                   beat,
+               };
+           }
+           wingPath(ctx, ds) {
+               // All skins share the same 500x500 duck framing. Separate the
+               // existing wing artwork from the body without changing its colors.
+               const points = [[70,70],[315,70],[327,277],[282,294],[220,280],[163,287],[140,327],[116,298],[88,260]];
+               for (let i = 0; i < points.length; i++) {
+                   const x = (points[i][0] / 500 - 0.5) * ds;
+                   const y = (points[i][1] / 500 - 0.5) * ds;
+                   if (i === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+               }
+               ctx.closePath();
+           }
+           drawAnimatedSprite(img, ds) {
+               const pose = this.animationPose(), ctx = drawingContext;
+               push();
+               translate(0, ds * pose.bob);
+               scale(1 + pose.kick * 0.025, 1 - pose.kick * 0.035);
+               if (pose.diving) {
+                   // Short air streaks follow the duck's heading as it banks.
+                   stroke(185, 210, 245, 45 + abs(altEvent.lean) * 45);
+                   strokeWeight(max(1, ds * 0.018));
+                   for (let i = -1; i <= 1; i++) {
+                       const x = -ds * (0.46 + (i + 1) * 0.045 + pose.beat * 0.018);
+                       line(x, ds * i * 0.09, x - ds * 0.14, ds * i * 0.09);
+                   }
+               }
+               // Draw the body with the wing region cut out, then pivot the
+               // original wing pixels around their shoulder for a real flap.
+               ctx.save(); ctx.beginPath();
+               ctx.rect(-ds / 2, -ds / 2, ds, ds);
+               this.wingPath(ctx, ds); ctx.clip('evenodd');
+               image(img, 0, 0, ds, ds); ctx.restore();
+               ctx.save();
+               ctx.translate(ds * 0.10, ds * 0.06);
+               ctx.rotate(pose.sweep);
+               ctx.scale(1, pose.wing);
+               ctx.translate(-ds * 0.10, -ds * 0.06);
+               ctx.beginPath(); this.wingPath(ctx, ds); ctx.clip();
+               image(img, 0, 0, ds, ds); ctx.restore();
+               pop();
+           }
+           up() { this.velocity = this.lift; this.flapAt = simFrame; Sfx.flap(); }
        }
 
        function drawStar(x, y, radius1, radius2, npoints) {
@@ -2708,17 +2766,16 @@
                if (altEvent.pointerId !== null) return;
                e.preventDefault();
                Sfx.unlock();
-               altEvent.pointerId = e.pointerId;
-               altEvent.setSteerTarget(p.x);
-               canvas.setPointerCapture(e.pointerId);
+               if (altEvent.beginSteerPointer(e.pointerId, p.x, p.y)) canvas.setPointerCapture(e.pointerId);
            }, { passive: false });
            canvas.addEventListener('pointermove', e => {
                if (gameState !== 'play' || !altEvent || altEvent.pointerId !== e.pointerId) return;
                e.preventDefault();
-               altEvent.setSteerTarget(position(e).x);
+               const p = position(e);
+               altEvent.moveSteerPointer(p.x, p.y);
            }, { passive: false });
            const release = e => {
-               if (altEvent && altEvent.pointerId === e.pointerId) altEvent.pointerId = null;
+               if (altEvent && altEvent.pointerId === e.pointerId) altEvent.releaseSteerPointer();
            };
            canvas.addEventListener('pointerup', release);
            canvas.addEventListener('pointercancel', release);
@@ -2740,6 +2797,10 @@
                this.targetX = 0.5;
                this.lean = 0;
                this.pointerId = null;
+               this.pointerMode = null;
+               this.pointerX = 0;
+               this.pointerDir = 0;
+               this.controlled = false;
                this.flightT = 0;
                this.lane = 1;
                this.ledges = [];
@@ -2751,7 +2812,38 @@
            climbing() { return this.kind === 'climb'; }
            steering() { return !this.climbing() && this.following(); }
            setSteerTarget(x) {
-               if (this.phase !== 'exit') this.targetX = constrain(x, 0.10, 0.90);
+               if (this.phase !== 'exit') { this.targetX = constrain(x, 0.10, 0.90); this.controlled = true; }
+           }
+           beginSteerPointer(id, x, y) {
+               if (this.phase === 'exit') return false;
+               this.pointerId = id;
+               this.pointerX = x;
+               this.controlled = true;
+               // Touching the board is a relative drag, with no initial jump.
+               // The two bottom arrows are hold-to-steer buttons.
+               this.pointerMode = y >= 0.76 && y <= 0.92 && (x < 0.38 || x > 0.62) ? 'button' : 'drag';
+               this.pointerDir = this.pointerMode === 'button' ? (x < 0.5 ? -1 : 1) : 0;
+               this.targetX = bird.x / width;
+               return true;
+           }
+           moveSteerPointer(x, y) {
+               if (this.phase === 'exit') return;
+               if (this.pointerMode === 'button') {
+                   this.pointerDir = x < 0.4 ? -1 : x > 0.6 ? 1 : 0;
+                   if (!this.pointerDir) this.targetX = bird.x / width;
+               } else {
+                   const dx = x - this.pointerX;
+                   // Reversing the finger cancels any queued movement first.
+                   if ((dx < 0 && this.targetX > bird.x / width) || (dx > 0 && this.targetX < bird.x / width)) this.targetX = bird.x / width;
+                   this.setSteerTarget(this.targetX + dx);
+               }
+               this.pointerX = x;
+           }
+           releaseSteerPointer() {
+               this.pointerId = null;
+               this.pointerMode = null;
+               this.pointerDir = 0;
+               if (this.steering() && this.phase !== 'exit') this.targetX = bird.x / width;
            }
            smooth(t) { t = constrain(t, 0, 1); return t * t * (3 - 2 * t); }
            exitProgress() {
@@ -2766,7 +2858,7 @@
                this.exitY = bird.y / height;
                this.exitVelocity = bird.velocity / height;
                this.ledges = [];
-               this.pointerId = null;
+               this.releaseSteerPointer();
                this.next('exit');
            }
            update() {
@@ -2775,7 +2867,9 @@
                if (this.steering() && this.phase !== 'exit') {
                    const dir = (keyIsDown(RIGHT_ARROW) || keyIsDown(68) ? 1 : 0)
                        - (keyIsDown(LEFT_ARROW) || keyIsDown(65) ? 1 : 0);
-                   if (dir) this.setSteerTarget(this.targetX + dir * C.steerSpeed);
+                   const direction = dir || this.pointerDir;
+                   // Work from the duck, not an old target on the opposite side.
+                   if (direction) this.setSteerTarget(bird.x / width + direction * C.steerSpeed);
                }
                switch (this.phase) {
                    case 'clear':
@@ -2850,7 +2944,8 @@
                if (this.steering()) {
                    const dx = constrain(this.targetX * width - b.x, -width * ALTITUDE_EVENT.steerSpeed, width * ALTITUDE_EVENT.steerSpeed);
                    b.x += dx;
-                   this.lean = lerp(this.lean, dx / (width * ALTITUDE_EVENT.steerSpeed), 0.2);
+                   if (dx * this.lean < 0) this.lean = 0;
+                   this.lean = lerp(this.lean, dx / (width * ALTITUDE_EVENT.steerSpeed), 0.45);
                    b.y = (this.phase === 'dive_warn' ? lerp(this.entryY, ALTITUDE_EVENT.diveY, this.smooth(this.t / ALTITUDE_EVENT.warnSteps)) : ALTITUDE_EVENT.diveY) * height;
                    b.velocity = 0;
                    return;
@@ -2861,8 +2956,8 @@
            }
            poseAngle(normal) {
                if (!this.steering()) return normal;
-               const dive = PI / 2 - this.lean * 0.3;
-               if (this.phase === 'dive_warn') return lerp(normal, dive, this.smooth(this.t / ALTITUDE_EVENT.warnSteps));
+               const dive = PI / 2 - this.lean * 1.05;
+               if (this.phase === 'dive_warn' && !this.controlled) return lerp(normal, dive, this.smooth(this.t / ALTITUDE_EVENT.warnSteps));
                return this.phase === 'exit' ? lerp(dive, normal, this.exitProgress()) : dive;
            }
            hits(b) {
@@ -2998,8 +3093,7 @@
                    }
                }
                if (this.steering()) {
-                   // These arrows also mark two generous touch areas. A drag
-                   // anywhere on the board follows the finger's horizontal position.
+                   // Hold an arrow to steer, or drag anywhere else on the board.
                    const y = height * 0.85;
                    for (const [x, dir] of [[width * 0.25, -1], [width * 0.75, 1]]) {
                        for (let i = 0; i < 2; i++) {
