@@ -11,6 +11,22 @@ Rules (enforced by `scripts/check.sh`):
 
 ---
 
+## [1.19.0] - 2026-11-06
+
+### Changed
+- Midnight dive is now a six-second steering section. The duck points down
+  while you drag left/right on a phone, move the mouse with its button held,
+  or use Left/Right (A/D) on a keyboard to pass through gaps in city ledges.
+- Four ledges require real steering. The first gap is centered; later gaps
+  move one lane at a time, with clear approach time. Each safe pass earns +5.
+- Removed the optional wind rings and the dive's separate climb-back task.
+  The duck banks smoothly back into normal flap controls in 0.6 seconds.
+- Replaced all event instruction words with flashing direction arrows.
+- Climbing keeps the flap challenge, with moving building facades on either
+  side and a rising storm below instead of a stationary floating building.
+- Shields break one ledge or absorb one storm hit. Pause, rotation, and normal
+  Day/STACKED controls keep working. Events still arrive at random times.
+
 ## [1.18.0] - 2026-11-06
 
 ### Added
