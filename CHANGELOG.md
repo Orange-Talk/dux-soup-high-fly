@@ -11,6 +11,28 @@ Rules (enforced by `scripts/check.sh`):
 
 ---
 
+## [1.17.0] - 2026-11-06
+
+### Added
+- Midnight: DIVE and PULL UP. Every so often the pipes pause and a "DIVE!"
+  warning appears. A storm ceiling sinks toward you: stop flapping and let
+  the duck drop under it. Then "PULL UP!": the city's rooftops rise from
+  below and you have to flap hard to climb over them. Starts at 100 points,
+  then every 150 points. Midnight only; Day and STACKED are unchanged.
+- While diving the duck falls a little slower, like a skydive. Flapping
+  works exactly as normal.
+- The shield protects against the storm and the rooftops too.
+
+### Fixed
+- Turning the phone sideways during a run could end it instantly when the
+  duck was low on the screen. The game now resizes first and redraws after,
+  so the duck keeps its place.
+
+### Fairness
+- Tested in a simulation before it was built: a player who reacts in about
+  half a second and taps 3 times a second always gets through, from any
+  height. A player who ignores the warnings always gets caught.
+
 ## [1.16.0] - 2026-10-14
 
 ### Added

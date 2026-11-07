@@ -316,7 +316,7 @@
 
 <script>
        // Your p5.js game code
-       const DEPLOY_VERSION = '1.16.0';
+       const DEPLOY_VERSION = '1.17.0';
        const SHARE_URL = 'https://highflygame-1ac8f.web.app/';
        // p5 drops the font name straight into the canvas font string. Unquoted,
        // "Press Start 2P" is invalid CSS (a name part can't start with a
@@ -379,6 +379,10 @@
        let hazards = [];
        let stackedShapes = [];
        let bestStackedScore = 0;
+
+       // --- Midnight DIVE / PULL UP event (see class AltitudeEvent) ---
+       let altEvent = null;
+       let nextAltEventAt = 0;
 
        // --- Fixed-step timing ---
        // Physics used to advance once per drawn frame, so on 120Hz phones
@@ -595,7 +599,10 @@
 
        function windowResized() {
            let oldW = width, oldH = height;
-           resizeCanvas(windowWidth, windowHeight);
+           // noRedraw = true: otherwise p5 draws (and runs game steps) at
+           // the new size BEFORE the duck below is rescaled, so a rotation
+           // to landscape could put the duck "under the floor" and end the run.
+           resizeCanvas(windowWidth, windowHeight, true);
            if (menuBufA) menuBufA.resizeCanvas(windowWidth, windowHeight);
            if (menuBufB) menuBufB.resizeCanvas(windowWidth, windowHeight);
            if (!bird) return;
@@ -770,8 +777,10 @@
                }
                for (let p of pipes) { p.show(); }
                for (let hz of hazards) { hz.show(); }
+               if (altEvent) altEvent.show();
                if (powerUp) powerUp.show();
                bird.show();
+               if (altEvent) altEvent.showBanner();
                playGame();
                if (gameState === 'play') bird.update();
                if (stackedMode || starMode) {
@@ -800,6 +809,7 @@
                if (midnightMode && !stackedMode) { for (let i = rain.length - 1; i >= 0; i--) { rain[i].show(); } }
                for (let p of pipes) { p.show(); }
                for (let hz of hazards) { hz.show(); }
+               if (altEvent) altEvent.show();
                bird.show();
                for (let i = impactParticles.length - 1; i >= 0; i--) {
                    impactParticles[i].update();
@@ -2045,7 +2055,7 @@
            // While a laser is telegraphing/firing, hold off on new pipes. That
            // keeps the corridor the player must thread through predictable, and
            // reads as a deliberate breather in the pipe rhythm.
-           let holdPipes = stackedMode && hazards.length > 0;
+           let holdPipes = (stackedMode && hazards.length > 0) || altEvent !== null;
             if (simFrame % diff.interval === 0 && !holdPipes) {
                let lastPipe = pipes.length > 0 ? pipes[pipes.length - 1] : null;
                let newPipe = new Pipe(lastPipe);
@@ -2076,6 +2086,35 @@
                        }
                    }
                    if (hazards[i].done()) hazards.splice(i, 1);
+               }
+           }
+
+           // Midnight only: the DIVE -> PULL UP combo.
+           if (currentMode() === 'night') {
+               if (!altEvent && score >= nextAltEventAt) altEvent = new AltitudeEvent();
+               if (altEvent) {
+                   altEvent.update(diff.speed);
+                   let hit = altEvent.hits(bird);
+                   if (hit && shieldGraceFrames <= 0) {
+                       if (hasShield) {
+                           hasShield = false;
+                           shieldGraceFrames = 30;
+                           shieldFlashTimer = 8;
+                           // shove the duck away from whatever it touched
+                           bird.velocity = hit === 'ceiling' ? -bird.lift * 0.4 : bird.lift;
+                           Sfx.shieldBreak();
+                           buzz(25);
+                           for (let k = 0; k < 20; k++) shieldParticles.push(new ShieldParticle(bird.x, bird.y));
+                       } else {
+                           endGame();
+                           return;
+                       }
+                   }
+                   if (altEvent.done()) {
+                       bird.fallScale = 1;
+                       altEvent = null;
+                       nextAltEventAt = score + ALTITUDE_EVENT.every;
+                   }
                }
            }
            for (let i = pipes.length - 1; i >= 0; i--) {
@@ -2350,6 +2389,8 @@
            neonTrail = [];
            shieldParticles = [];
            hazards = [];
+           altEvent = null;
+           nextAltEventAt = ALTITUDE_EVENT.firstAt;
            rain = [];
            powerUp = null;
            hasShield = false;
@@ -2406,8 +2447,11 @@
 
        class Bird {
            constructor() { this.size = height * 0.08; this.reset(); }
-           reset() { this.size = height * 0.08; this.x = width / 4; this.y = height / 2; this.gravity = 0.0005 * height; this.lift = -0.012 * height; this.velocity = 0; this.baseY = height / 2; }
-           update() { this.velocity += this.gravity; this.velocity *= 0.98; this.y += this.velocity; }
+           reset() { this.size = height * 0.08; this.x = width / 4; this.y = height / 2; this.gravity = 0.0005 * height; this.lift = -0.012 * height; this.velocity = 0; this.baseY = height / 2; this.fallScale = 1; }
+           // fallScale only weakens gravity while FALLING (the Midnight dive's
+           // parachute feel). Applying it while rising would make every flap
+           // shoot higher, straight into the sinking storm ceiling.
+           update() { this.velocity += this.gravity * (this.velocity > 0 ? this.fallScale : 1); this.velocity *= 0.98; this.y += this.velocity; }
            hover() { this.x = width / 2; this.y = this.baseY + sin(frameCount * 0.05) * 10; this.velocity = 0; }
            show() {
                let imgToShow = birdSpriteForMode();
@@ -2604,6 +2648,233 @@
                lb.y = y;
                hazards.push(lb);
                return;
+           }
+       }
+
+       // ====================================================================
+       // Midnight DIVE -> PULL UP
+       //
+       // A storm ceiling sinks and forces the duck low (stop flapping, let it
+       // drop), then the city's rooftops rise and force it high (flap hard).
+       // Pipes pause for the whole thing. No bonus points: surviving is the
+       // reward.
+       //
+       // Fairness was proven in a headless simulation before this was built.
+       // With these numbers, a player who reacts in 0.55s and can only manage
+       // 3 taps a second survives from every height that is survivable at
+       // all, and a player who ignores the warnings is always caught. Faster
+       // ceiling/roof speeds or a lower lane make it harder; re-check fairness
+       // if you push them a long way.
+       // ====================================================================
+
+       // TODO(human): tune how the dive and the pull-up FEEL after playtesting.
+       const ALTITUDE_EVENT = {
+           firstAt: 100,       // score when the first one can happen
+           every: 150,         // points between one event and the next
+           warnSteps: 55,      // "DIVE!" warning before the storm moves (60 = 1 second)
+           ceilSpeed: 0.32,    // how fast the storm sinks, in screen heights per second
+           laneTop: 0.66,      // how low it comes (0 = top of screen, 1 = bottom)
+           holdSteps: 45,      // time squeezed in the low lane under the storm
+           fallScale: 0.65,    // gravity while falling in the dive (1 = normal, lower = floatier)
+           pullWarnSteps: 45,  // "PULL UP!" warning before the rooftops rise
+           roofSpeed: 0.30,    // how fast the rooftops rise, in screen heights per second
+           roofTop: 0.45,      // how high they reach (0 = top of screen, 1 = bottom)
+           roofHoldSteps: 60,  // time flying over the rooftops
+       };
+
+       class AltitudeEvent {
+           constructor() {
+               this.phase = 'clear';   // first, let pipes already on screen pass
+               this.t = 0;             // steps spent in the current phase
+               // Positions are fractions of the screen so a rotate/resize
+               // mid-event keeps everything where it was.
+               this.ceil = 0;          // storm's bottom edge (0 = top of screen)
+               this.roof = 1.2;        // tallest rooftop (above 1 = below the screen)
+               this.scroll = 0;        // rooftops drift left with the world
+               // One row of buildings, each sitting `drop` below the tallest
+               // roof. Collision uses the real building under the duck, so the
+               // shorter ones are genuinely safer, never deceptively deadly.
+               this.buildings = [];
+               let x = 0;
+               while (x < 1.4) {
+                   let w = random(0.09, 0.17);
+                   this.buildings.push({ x, w, drop: random() < 0.4 ? 0 : random(0.012, 0.07), seed: floor(random(1e5)) });
+                   x += w + random(0.004, 0.012);
+               }
+               this.span = x;
+           }
+
+           next(phase) { this.phase = phase; this.t = 0; }
+           done() { return this.phase === 'done'; }
+
+           // A building's on-screen x (fraction of width), drawn twice so the
+           // row wraps around seamlessly instead of popping.
+           copies(b) {
+               let sx = (((b.x - this.scroll) % this.span) + this.span) % this.span;
+               return [sx, sx - this.span];
+           }
+
+           update(speedPx) {
+               const C = ALTITUDE_EVENT;
+               this.t++;
+               this.scroll += speedPx / width;
+               switch (this.phase) {
+                   case 'clear':
+                       if (pipes.every(p => p.x + p.w < bird.x - bird.size)) this.next('dive_warn');
+                       break;
+                   case 'dive_warn':
+                       if (this.t === 1) { Sfx.laser(); buzz(20); }
+                       if (this.t >= C.warnSteps) this.next('dive');
+                       break;
+                   case 'dive':
+                       bird.fallScale = C.fallScale;
+                       this.ceil = min(C.laneTop, this.ceil + C.ceilSpeed / 60);
+                       if (this.ceil >= C.laneTop) this.next('dive_hold');
+                       break;
+                   case 'dive_hold':
+                       if (this.t >= C.holdSteps) { bird.fallScale = 1; this.next('pull_warn'); }
+                       break;
+                   case 'pull_warn':
+                       if (this.t === 1) { Sfx.laser(); buzz(20); }
+                       // The storm whips away fast, so climbing early is never punished.
+                       this.ceil = max(0, this.ceil - C.laneTop / 15);
+                       // Rooftops peek in, but only below the floor's own kill line.
+                       this.roof = 0.985;
+                       if (this.t >= C.pullWarnSteps) this.next('pull');
+                       break;
+                   case 'pull':
+                       this.ceil = 0;
+                       this.roof = max(C.roofTop, this.roof - C.roofSpeed / 60);
+                       if (this.roof <= C.roofTop) this.next('pull_hold');
+                       break;
+                   case 'pull_hold':
+                       if (this.t >= C.roofHoldSteps) this.next('exit');
+                       break;
+                   case 'exit':
+                       // Rooftops sink away; they can't catch a duck that's above them.
+                       this.roof = min(1.2, this.roof + C.roofSpeed * 3 / 60);
+                       if (this.roof >= 1.2) this.next('done');
+                       break;
+               }
+           }
+
+           // Returns 'ceiling', 'roof' or null. Same hitbox as pipes and lasers.
+           hits(b) {
+               const r = b.size / 4;
+               if (this.ceil > 0 && b.y - r < this.ceil * height) return 'ceiling';
+               if (this.roof < 1) {
+                   for (const bl of this.buildings) {
+                       for (const sx of this.copies(bl)) {
+                           let left = sx * width, right = (sx + bl.w) * width;
+                           if (b.x + r > left && b.x - r < right && b.y + r > (this.roof + bl.drop) * height) return 'roof';
+                       }
+                   }
+               }
+               return null;
+           }
+
+           show() {
+               push();
+               rectMode(CORNER);
+               noStroke();
+               const diving = this.phase === 'dive' || this.phase === 'dive_hold';
+
+               // Speed lines streaming upward sell the freefall.
+               if (diving) {
+                   stroke(200, 210, 255, 45);
+                   strokeWeight(2);
+                   for (let i = 0; i < 14; i++) {
+                       let lx = (i * 97.3 + 13) % width;
+                       let ly = height - ((frameCount * 14 + i * 131) % (height + 80));
+                       line(lx, ly, lx, ly + 40);
+                   }
+                   noStroke();
+               }
+
+               // Storm ceiling. Its bottom edge is a straight line, and that
+               // line is exactly where it kills, so what you see is what hits.
+               let edge = this.ceil * height;
+               if (this.phase === 'dive_warn') edge = height * 0.025;   // a warning sliver, harmless
+               if (edge > 0.5) {
+                   fill(22, 26, 46);
+                   rect(0, 0, width, edge);
+                   let pr = height * 0.035;
+                   fill(36, 42, 70);
+                   for (let x = 0; x < width + pr; x += pr * 1.5) circle(x, edge - pr, pr * 2);
+                   // gentle flicker on a thin line only (no full-screen strobe)
+                   fill(175, 190, 255, (frameCount % 12 < 3) ? 230 : 140);
+                   rect(0, edge - 3, width, 3);
+               }
+
+               // PULL UP warning: a red glow rising from the bottom shows where
+               // the danger is coming from. A glow, not a solid shape, so it
+               // never looks like something you could hit.
+               if (this.phase === 'pull_warn') {
+                   let pulse = 0.6 + 0.4 * sin(frameCount * 0.35);
+                   for (let i = 0; i < 12; i++) {
+                       let bandH = height * 0.012;
+                       fill(255, 60, 50, (130 - i * 10) * pulse);
+                       rect(0, height - (i + 1) * bandH, width, bandH);
+                   }
+               }
+
+               // Rooftops
+               if (this.roof < 1.05) {
+                   for (const bl of this.buildings) {
+                       for (const sx of this.copies(bl)) {
+                           let x = sx * width, w = bl.w * width;
+                           if (x > width || x + w < 0) continue;
+                           let top = (this.roof + bl.drop) * height;
+                           fill(18, 22, 44);
+                           rect(x, top, w, height - top);
+                           // lit windows, fixed per building
+                           let cell = max(6, w / 6);
+                           for (let wy = top + cell * 0.8; wy < height - cell; wy += cell) {
+                               for (let wx = x + cell * 0.5; wx < x + w - cell * 0.6; wx += cell) {
+                                   if (hash01(bl.seed + wx * 0.37 + wy * 1.71) < 0.45) {
+                                       fill(255, 214, 110, 210);
+                                       rect(wx, wy, cell * 0.38, cell * 0.38);
+                                   }
+                               }
+                           }
+                           // Thick bright danger edge on every roof. The backdrop
+                           // skyline is right behind these and pokes up higher,
+                           // so the deadly ones must be unmistakable at a glance.
+                           fill(255, 70, 60, 235);
+                           rect(x, top, w, max(4, height * 0.006));
+                           if (bl.drop === 0) {
+                               fill(255, 60, 60, (frameCount % 30 < 15) ? 255 : 80);
+                               rect(x + w / 2 - 2, top - 7, 4, 7);
+                           }
+                       }
+                   }
+               }
+               pop();
+           }
+
+           showBanner() {
+               let txt = null, up = false;
+               if (this.phase === 'dive_warn' || (this.phase === 'dive' && this.t < 40)) txt = 'DIVE!';
+               else if (this.phase === 'pull_warn' || (this.phase === 'pull' && this.t < 40)) { txt = 'PULL UP!'; up = true; }
+               if (!txt) return;
+               let a = (frameCount % 16 < 10) ? 255 : 110;
+               let col = up ? color(255, 120, 95, a) : color(150, 205, 255, a);
+               let y = height * 0.3;
+               push();
+               textFont(PIXEL_FONT);
+               textAlign(CENTER, CENTER);
+               fitTextSize(txt, height * 0.06, width * 0.6);   // leaves room for the arrows
+               stroke(0, a);
+               strokeWeight(5);
+               fill(col);
+               text(txt, width / 2, y);
+               let tw = textWidth(txt), s = textSize() * 0.7;
+               noStroke();
+               for (const ax of [width / 2 - tw / 2 - s * 1.3, width / 2 + tw / 2 + s * 1.3]) {
+                   if (up) triangle(ax - s / 2, y + s / 2, ax + s / 2, y + s / 2, ax, y - s / 2);
+                   else triangle(ax - s / 2, y - s / 2, ax + s / 2, y - s / 2, ax, y + s / 2);
+               }
+               pop();
            }
        }
 
