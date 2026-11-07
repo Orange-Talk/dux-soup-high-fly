@@ -11,6 +11,22 @@ Rules (enforced by `scripts/check.sh`):
 
 ---
 
+## [1.18.0] - 2026-11-06
+
+### Added
+- Midnight events now arrive at random times once a run is underway. The first
+  is scheduled after 12-22 seconds and at least 30 points; later events wait
+  another 18-32 seconds after recovery. Pausing does not advance the timer.
+- Events randomly choose a storm dive or a skyscraper climb. Both wait for
+  existing pipes to clear and show a warning before the danger starts.
+- PULL UP: a lit skyscraper rises beneath the duck. Keep flapping to climb;
+  the camera follows upward so the top of the screen is not a deadly ceiling.
+- Dive skill bonus: tap carefully to catch optional wind rings for +5 each.
+  Releasing still gives a safe escape from the storm. Extra flaps risk a hit.
+- Both events keep the Midnight pixel city, clouds, and storm palette, use the
+  same tap-to-flap controls, and ease back into normal flight afterward.
+- Shields absorb one storm or building hit. Day and STACKED remain unchanged.
+
 ## [1.17.0] - 2026-11-06
 
 ### Added

@@ -316,7 +316,7 @@
 
 <script>
        // Your p5.js game code
-       const DEPLOY_VERSION = '1.17.0';
+       const DEPLOY_VERSION = '1.18.0';
        const SHARE_URL = 'https://highflygame-1ac8f.web.app/';
        // p5 drops the font name straight into the canvas font string. Unquoted,
        // "Press Start 2P" is invalid CSS (a name part can't start with a
@@ -380,9 +380,9 @@
        let stackedShapes = [];
        let bestStackedScore = 0;
 
-       // --- Midnight endless dive (see class AltitudeEvent) ---
+       // --- Random Midnight storm dives and skyscraper climbs ---
        let altEvent = null;
-       let nextAltEventAt = 0;
+       let nextAltEventFrame = 0;
 
        // --- Fixed-step timing ---
        // Physics used to advance once per drawn frame, so on 120Hz phones
@@ -2054,7 +2054,9 @@
            // While a laser is telegraphing/firing, hold off on new pipes. That
            // keeps the corridor the player must thread through predictable, and
            // reads as a deliberate breather in the pipe rhythm.
-           if (currentMode() === 'night' && !altEvent && score >= nextAltEventAt) altEvent = new AltitudeEvent();
+           if (currentMode() === 'night' && !altEvent && score >= ALTITUDE_EVENT.minScore && simFrame >= nextAltEventFrame) {
+               altEvent = new AltitudeEvent(random() < 0.5 ? 'dive' : 'climb');
+           }
            let holdPipes = (stackedMode && hazards.length > 0) || altEvent !== null;
             if (simFrame % diff.interval === 0 && !holdPipes) {
                let lastPipe = pipes.length > 0 ? pipes[pipes.length - 1] : null;
@@ -2089,7 +2091,7 @@
                }
            }
 
-           // Midnight only: dive with a following camera, then gently level out.
+           // Midnight only: a storm dive or skyscraper climb, then level out.
            if (currentMode() === 'night') {
                if (altEvent) {
                    altEvent.update();
@@ -2099,9 +2101,7 @@
                            hasShield = false;
                            shieldGraceFrames = 30;
                            shieldFlashTimer = 8;
-                           // One shield hit puts the duck safely below the storm.
-                           bird.y = max(bird.y, (altEvent.ceil + 0.08) * height);
-                           bird.velocity = -bird.lift * 0.4;
+                           altEvent.deflect(bird, hit);
                            Sfx.shieldBreak();
                            buzz(25);
                            for (let k = 0; k < 20; k++) shieldParticles.push(new ShieldParticle(bird.x, bird.y));
@@ -2113,7 +2113,7 @@
                    if (altEvent.done()) {
                        bird.fallScale = 1;
                        altEvent = null;
-                       nextAltEventAt = score + ALTITUDE_EVENT.every;
+                       nextAltEventFrame = scheduleAltitudeEvent();
                    }
                }
            }
@@ -2397,7 +2397,7 @@
            shieldParticles = [];
            hazards = [];
            altEvent = null;
-           nextAltEventAt = ALTITUDE_EVENT.firstAt;
+           nextAltEventFrame = 0;
            rain = [];
            powerUp = null;
            hasShield = false;
@@ -2410,6 +2410,7 @@
            score = 0;
            simAcc = 0;
            simFrame = 0;
+           nextAltEventFrame = currentMode() === 'night' ? scheduleAltitudeEvent(true) : 0;
            bgScroll = random(0, 5000);
            bird.reset();
            pipes.push(new Pipe(null));
@@ -2659,42 +2660,64 @@
        }
 
        // ====================================================================
-       // Midnight endless dive. Stop flapping to escape the sinking storm.
-       // The camera follows at 70% height; the bottom is no longer a floor.
-       // All motion and phase changes advance in the fixed 60Hz game step.
+       // Midnight weather and city events. Gameplay uses the fixed 60Hz step.
+       // Dive: release to escape the storm, or risk a flap for bonus wind rings.
+       // Climb: flap above a rising skyscraper. The camera follows either way.
        // ====================================================================
        const ALTITUDE_EVENT = {
-           firstAt: 100,
-           every: 150,
-           warnSteps: 75,      // reaction time plus room to reverse an upward flap
-           ceilSpeed: 0.32,    // screen heights per second
-           laneTop: 0.50,      // leaves visible space above the camera's 70% anchor
+           minScore: 30,
+           firstDelay: [12, 22],  // seconds of flight, not wall-clock time
+           repeatDelay: [18, 32],
+           warnSteps: 75,
+           ceilSpeed: 0.32,
+           laneTop: 0.50,
+           roofSpeed: 0.21,
+           roofTop: 0.52,
            holdSteps: 90,
            fallScale: 0.65,
            cameraAnchor: 0.70,
-           exitSteps: 90,      // automatic, gentle return to normal flight
+           climbAnchor: 0.30,
+           exitSteps: 90,
+           ringEvery: 50,
+           ringBonus: 5,
        };
 
+       function scheduleAltitudeEvent(first = false) {
+           const range = first ? ALTITUDE_EVENT.firstDelay : ALTITUDE_EVENT.repeatDelay;
+           return simFrame + floor(random(range[0], range[1]) * 60);
+       }
+
        class AltitudeEvent {
-           constructor() {
-               this.phase = 'clear';   // let existing pipes pass before warning
+           constructor(kind = 'dive') {
+               this.kind = kind;
+               this.phase = 'clear';
                this.t = 0;
-               // Screen fractions survive browser toolbar resizes and rotation.
+               // Fractions preserve position when the phone rotates or resizes.
                this.ceil = 0;
-               this.camera = 0;        // total downward travel, in screen heights
+               this.roof = 1.05;
+               this.camera = 0;
                this.exitY = 0.5;
                this.exitVelocity = 0;
+               this.flightT = 0;
+               this.rings = [];
            }
 
            next(phase) { this.phase = phase; this.t = 0; }
            done() { return this.phase === 'done'; }
            following() { return this.phase !== 'clear' && !this.done(); }
+           climbing() { return this.kind === 'climb'; }
            exitProgress() {
                const t = constrain(this.t / ALTITUDE_EVENT.exitSteps, 0, 1);
                return t * t * (3 - 2 * t);
            }
            sceneryFade() {
                return min(1, this.camera * 3) * (this.phase === 'exit' ? 1 - this.exitProgress() : 1);
+           }
+           startExit() {
+               this.exitY = bird.y / height;
+               this.exitVelocity = bird.velocity / height;
+               this.rings = [];
+               this.next('exit');
            }
 
            update() {
@@ -2703,32 +2726,34 @@
                switch (this.phase) {
                    case 'clear':
                        if (pipes.every(p => p.x + p.w < bird.x - bird.size)) {
-                           // Everything ahead is clear before the camera starts.
                            pipes = [];
                            powerUp = null;
-                           this.next('dive_warn');
+                           this.next(this.climbing() ? 'climb_warn' : 'dive_warn');
                        }
                        break;
                    case 'dive_warn':
-                       bird.fallScale = C.fallScale;
+                   case 'climb_warn':
+                       bird.fallScale = this.climbing() ? 1 : C.fallScale;
                        if (this.t === 1) { Sfx.laser(); buzz(20); }
-                       if (this.t >= C.warnSteps) this.next('dive');
+                       if (this.t >= C.warnSteps) this.next(this.climbing() ? 'climb' : 'dive');
                        break;
                    case 'dive':
                        this.ceil = min(C.laneTop, this.ceil + C.ceilSpeed / 60);
                        if (this.ceil >= C.laneTop) this.next('dive_hold');
                        break;
+                   case 'climb':
+                       this.roof = max(C.roofTop, this.roof - C.roofSpeed / 60);
+                       if (this.roof <= C.roofTop) this.next('climb_hold');
+                       break;
                    case 'dive_hold':
-                       if (this.t >= C.holdSteps) {
-                           this.exitY = bird.y / height;
-                           this.exitVelocity = bird.velocity / height;
-                           this.next('exit');
-                       }
+                   case 'climb_hold':
+                       if (this.t >= C.holdSteps) this.startExit();
                        break;
                    case 'exit':
-                       // Storm becomes harmless immediately. Recovery cannot kill.
+                       // Recovery is harmless, including when tapping early.
                        this.ceil = max(0, this.ceil - C.laneTop / 30);
-                       this.camera += max(0, this.exitVelocity) * (1 - this.exitProgress());
+                       this.roof = min(1.05, this.roof + C.roofSpeed * 3 / 60);
+                       this.camera += abs(this.exitVelocity) * (1 - this.exitProgress());
                        if (this.t >= C.exitSteps) {
                            bird.fallScale = 1;
                            bird.y = height * 0.5;
@@ -2737,9 +2762,31 @@
                        }
                        break;
                }
+               if (this.phase === 'dive' || this.phase === 'dive_hold') this.updateRings();
            }
 
-           // Called after bird physics, before the next collision check.
+           updateRings() {
+               this.flightT++;
+               // Three optional targets, with room between them to release and
+               // drop away from the storm. Missing a ring never hurts the duck.
+               if (this.flightT <= 101 && (this.flightT - 1) % ALTITUDE_EVENT.ringEvery === 0) {
+                   this.rings.push({ x: 1.05, y: random(0.58, 0.62) });
+               }
+               const r = min(width * 0.075, height * 0.035);
+               for (let i = this.rings.length - 1; i >= 0; i--) {
+                   const ring = this.rings[i];
+                   ring.x -= 0.014;
+                   const dx = ring.x * width - bird.x, dy = ring.y * height - bird.y;
+                   if (dx * dx + dy * dy < (r + bird.size / 4) ** 2) {
+                       score += ALTITUDE_EVENT.ringBonus;
+                       scorePopups.push(new ScorePopup(bird.x, bird.y - bird.size, ALTITUDE_EVENT.ringBonus));
+                       Sfx.score();
+                       this.rings.splice(i, 1);
+                   } else if (ring.x < -0.15) this.rings.splice(i, 1);
+               }
+           }
+
+           // Run after bird physics, before the next collision check.
            follow(b) {
                if (!this.following()) return;
                if (this.phase === 'exit') {
@@ -2748,21 +2795,32 @@
                    b.velocity = lerp(this.exitVelocity, b.lift * 0.35 / height, ease) * height;
                    return;
                }
-               const anchor = height * ALTITUDE_EVENT.cameraAnchor;
-               if (b.y > anchor) {
-                   this.camera += (b.y - anchor) / height;
+               const anchor = height * (this.climbing() ? ALTITUDE_EVENT.climbAnchor : ALTITUDE_EVENT.cameraAnchor);
+               if (this.climbing() ? b.y < anchor : b.y > anchor) {
+                   this.camera += abs(b.y - anchor) / height;
                    b.y = anchor;
-                   // Preserve falling speed: scenery keeps rushing upward even
-                   // though the camera holds the duck at the same screen height.
                }
-               // A warning is reaction time, including for a duck already high.
-               // Once armed, the visible storm edge handles all upper hits.
-               if (this.phase === 'dive_warn') b.y = max(b.size / 2, b.y);
+               // Both warnings allow reaction time at either screen boundary.
+               if (this.phase === 'dive_warn' || this.phase === 'climb_warn') {
+                   b.y = constrain(b.y, b.size / 2, height - b.size / 2);
+               }
            }
 
            hits(b) {
-               if (this.phase !== 'dive' && this.phase !== 'dive_hold') return null;
-               return b.y - b.size / 4 < this.ceil * height ? 'ceiling' : null;
+               const r = b.size / 4;
+               if ((this.phase === 'dive' || this.phase === 'dive_hold') && b.y - r < this.ceil * height) return 'ceiling';
+               if ((this.phase === 'climb' || this.phase === 'climb_hold') && b.y + r > this.roof * height) return 'roof';
+               return null;
+           }
+
+           deflect(b, hit) {
+               if (hit === 'roof') {
+                   b.y = min(b.y, (this.roof - 0.08) * height);
+                   b.velocity = b.lift * 0.6;
+               } else {
+                   b.y = max(b.y, (this.ceil + 0.08) * height);
+                   b.velocity = -b.lift * 0.4;
+               }
            }
 
            show() {
@@ -2771,16 +2829,11 @@
                rectMode(CORNER);
                noStroke();
                const fade = this.sceneryFade();
-               const travel = this.camera;
-
-               // Leave the skyline behind and descend through an open sky shaft.
-               // These layers follow actual downward travel, rather than merely
-               // animating a duck pinned against the bottom of the screen.
+               const travel = this.camera * (this.climbing() ? -1 : 1);
                fill(8, 12, 28, 255 * fade);
                rect(0, 0, width, height);
                for (let i = 0; i < 24; i++) {
-                   const side = i % 2;
-                   const x = side ? width * (0.88 + (i % 3) * 0.035) : width * (0.025 + (i % 3) * 0.035);
+                   const x = i % 2 ? width * (0.88 + (i % 3) * 0.035) : width * (0.025 + (i % 3) * 0.035);
                    const y = (((i * 0.173 - travel * 1.3) % 1.15 + 1.15) % 1.15 - 0.1) * height;
                    fill(120, 175, 255, 100 * fade);
                    rect(x, y, width * 0.012, height * 0.045);
@@ -2803,7 +2856,7 @@
                }
                noStroke();
 
-               // The bright, straight edge is exactly the storm collision edge.
+               // The bright storm and roof edges match their collision lines.
                let edge = this.ceil * height;
                if (this.phase === 'dive_warn') edge = height * 0.025;
                if (edge > 0.5) {
@@ -2815,26 +2868,72 @@
                    fill(175, 190, 255, frameCount % 12 < 3 ? 230 : 140);
                    rect(0, edge - 3, width, 3);
                }
+               if (this.climbing()) this.showBuilding();
+               if (this.rings.length) {
+                   const r = min(width * 0.075, height * 0.035);
+                   noFill();
+                   for (const ring of this.rings) {
+                       const x = ring.x * width, y = ring.y * height;
+                       stroke(150, 205, 255, 35); strokeWeight(10);
+                       ellipse(x, y, r * 2, r * 2);
+                       stroke(180, 225, 255, 230); strokeWeight(3);
+                       ellipse(x, y, r * 2, r * 2);
+                       // Wind streaks, in the same cool palette as Midnight.
+                       line(x + r * 1.2, y - r * 0.4, x + r * 1.8, y - r * 0.4);
+                       line(x + r * 1.2, y + r * 0.4, x + r * 1.6, y + r * 0.4);
+                   }
+               }
                pop();
+           }
+
+           showBuilding() {
+               const warning = this.phase === 'climb_warn';
+               const top = (warning ? 0.975 : this.roof) * height;
+               if (top >= height) return;
+               noStroke();
+               fill(26, 30, 55); rect(0, top, width, height - top);
+               const cell = max(12, width / 16);
+               for (let row = 0, y = top + cell; y < height; row++, y += cell * 1.5) {
+                   for (let col = 0, x = cell * 0.5; x < width; col++, x += cell) {
+                       fill(hash01(row * 17 + col * 7 + 3) > 0.35 ? color(240, 203, 120, 210) : color(47, 54, 85));
+                       rect(x, y, cell * 0.35, cell * 0.6);
+                   }
+               }
+               // A roof ledge and maintenance panels make this a skyscraper,
+               // with no decorative antenna above the actual danger edge.
+               fill(68, 75, 102); rect(0, top + 5, width, cell * 0.7);
+               fill(255, 173, 92); rect(0, top, width, max(4, height * 0.006));
+               fill(255, 90, 75, frameCount % 40 < 20 ? 230 : 110);
+               rect(width * 0.88, top + 8, cell * 0.25, cell * 0.25);
            }
 
            showBanner() {
                let txt, hint;
-               if (this.phase === 'dive_warn' || (this.phase === 'dive' && this.t < 40)) {
-                   txt = 'DIVE!'; hint = 'STOP FLAPPING';
+               if (this.phase.endsWith('_warn') || ((this.phase === 'dive' || this.phase === 'climb') && this.t < 40)) {
+                   txt = this.climbing() ? 'PULL UP!' : 'DIVE!';
+                   hint = this.climbing() ? 'FLAP ABOVE THE ROOF' : 'LET GO TO DROP';
                } else if (this.phase === 'exit') {
                    txt = 'LEVELING OUT'; hint = this.t < 55 ? 'GET READY' : 'TAP TO FLY';
+               } else if (this.phase === 'dive' || this.phase === 'dive_hold') {
+                   push();
+                   textFont(PIXEL_FONT); textAlign(CENTER, CENTER);
+                   stroke(0, 220); strokeWeight(4); fill(180, 225, 255);
+                   fitTextSize('TAP FOR +5 WIND RINGS', height * 0.015, width * 0.9);
+                   text('TAP FOR +5 WIND RINGS', width / 2, height * 0.88);
+                   pop();
+                   return;
                } else return;
                push();
                textFont(PIXEL_FONT);
                textAlign(CENTER, CENTER);
-               stroke(0, 220);
-               strokeWeight(5);
-               fill(150, 205, 255);
+               stroke(0, 220); strokeWeight(5);
+               fill(this.climbing() ? color(255, 200, 140) : color(150, 205, 255));
+               // Climb warning stays above the duck's 30% camera anchor.
+               const y = this.climbing() && this.phase !== 'exit' ? 0.16 : 0.27;
                fitTextSize(txt, height * 0.045, width * 0.85);
-               text(txt, width / 2, height * 0.27);
-               fitTextSize(hint, height * 0.018, width * 0.85);
-               text(hint, width / 2, height * 0.34);
+               text(txt, width / 2, height * y);
+               fitTextSize(hint, height * 0.018, width * 0.88);
+               text(hint, width / 2, height * (y + 0.07));
                pop();
            }
        }
